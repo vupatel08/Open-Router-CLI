@@ -1,0 +1,6 @@
+requests
+tiktoken
+rich
+python-dotenv
+colorama
+packaging
