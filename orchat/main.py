@@ -66,7 +66,8 @@ def load_config():
                 'theme': settings.get('THEME', 'default'),
                 'max_tokens': settings.getint('MAX_TOKENS', 8000),
                 'autosave_interval': settings.getint('AUTOSAVE_INTERVAL', 300),
-                'streaming': settings.getboolean('STREAMING', True)
+                'streaming': settings.getboolean('STREAMING', True),
+                'thinking_mode': settings.getboolean('THINKING_MODE', True)  # Add this line
             }
     
     # Return defaults if no config file
@@ -78,7 +79,8 @@ def load_config():
         'theme': 'default',
         'max_tokens': 8000,
         'autosave_interval': 300,
-        'streaming': True
+        'streaming': True,
+        'thinking_mode': True  # Add default thinking mode preference
     }
 
 def save_config(config_data):
@@ -92,7 +94,8 @@ def save_config(config_data):
         'THEME': config_data['theme'],
         'MAX_TOKENS': str(config_data['max_tokens']),
         'AUTOSAVE_INTERVAL': str(config_data['autosave_interval']),
-        'STREAMING': str(config_data['streaming'])
+        'STREAMING': str(config_data['streaming']),
+        'THINKING_MODE': str(config_data['thinking_mode'])  # Add this line
     }
     
     config_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config.ini')
@@ -286,6 +289,13 @@ def setup_wizard():
         console.print(f"- {theme}")
     theme_choice = Prompt.ask("Select theme", choices=available_themes, default="default")
     
+    # After theme selection, add thinking mode preference with 'n' as default
+    thinking_mode = Prompt.ask(
+        "Enable thinking mode? (Shows AI reasoning process)",
+        choices=["y", "n"], 
+        default="n"  # Changed from "y" to "n"
+    ).lower() == "y"
+    
     config_data = {
         'api_key': api_key,
         'model': model,
@@ -294,7 +304,8 @@ def setup_wizard():
         'theme': theme_choice,
         'max_tokens': 8000,
         'autosave_interval': 300,
-        'streaming': True
+        'streaming': True,
+        'thinking_mode': thinking_mode  # Add this line
     }
     
     save_config(config_data)
@@ -332,6 +343,9 @@ def stream_response(response, start_time):
     thinking_content = ""
     in_thinking = False
     
+    # Check for thinking mode preference (default to True for backward compatibility)
+    thinking_mode = True
+    
     # Create a temporary file to collect all content
     # This avoids terminal display issues
     collected_content = []
@@ -365,28 +379,30 @@ def stream_response(response, start_time):
                         # Add to full content
                         full_content += content
                         
-                        # Check for thinking tags
-                        if "<thinking>" in content:
-                            in_thinking = True
-                            # Extract content after the tag
-                            thinking_part = content.split("<thinking>", 1)[1]
-                            thinking_content += thinking_part
-                            # Skip this chunk - don't display the <thinking> tag
-                            continue
+                        # Only process thinking tags if thinking mode is enabled
+                        if thinking_mode:
+                            # Check for thinking tags
+                            if "<thinking>" in content:
+                                in_thinking = True
+                                # Extract content after the tag
+                                thinking_part = content.split("<thinking>", 1)[1]
+                                thinking_content += thinking_part
+                                # Skip this chunk - don't display the <thinking> tag
+                                continue
+                            
+                            if "</thinking>" in content:
+                                in_thinking = False
+                                # Extract content before the tag
+                                thinking_part = content.split("</thinking>", 1)[0]
+                                thinking_content += thinking_part
+                                # Skip this chunk - don't display the </thinking> tag
+                                continue
+                            
+                            if in_thinking:
+                                thinking_content += content
+                                continue
                         
-                        if "</thinking>" in content:
-                            in_thinking = False
-                            # Extract content before the tag
-                            thinking_part = content.split("</thinking>", 1)[0]
-                            thinking_content += thinking_part
-                            # Skip this chunk - don't display the </thinking> tag
-                            continue
-                        
-                        if in_thinking:
-                            thinking_content += content
-                            continue
-                        
-                        # Not in thinking mode, collect for display
+                        # Not in thinking mode or model doesn't support thinking, collect for display
                         collected_content.append(content)
             except json.JSONDecodeError:
                 # For non-JSON chunks, quietly ignore
@@ -407,7 +423,7 @@ def stream_response(response, start_time):
     thinking_pattern = re.compile(r'<thinking>(.*?)</thinking>', re.DOTALL)
     thinking_matches = thinking_pattern.findall(full_content)
     
-    if thinking_matches:
+    if thinking_mode and thinking_matches:
         thinking_section = "\n".join(thinking_matches)
         # Update the global thinking content variable
         last_thinking_content = thinking_section
@@ -416,9 +432,9 @@ def stream_response(response, start_time):
         if thinking_content.strip():
             last_thinking_content = thinking_content
     
-    # Clean the full content - more thorough regex pattern
+    # Clean the full content - only if model supports thinking
     cleaned_content = full_content
-    if "<thinking>" in full_content:
+    if thinking_mode and "<thinking>" in full_content:
         # Remove the thinking sections with a more robust pattern
         try:
             # Use a non-greedy match to handle multiple thinking sections
@@ -813,6 +829,31 @@ def check_for_updates():
     except Exception as e:
         console.print(f"[yellow]Could not check for updates: {str(e)}[/yellow]")
 
+def model_supports_thinking(model_id):
+    """Determine if a model properly supports the thinking tag format"""
+    # List of models known to support thinking tags correctly
+    thinking_compatible_models = [
+        "anthropic/claude-3.7-sonnet:thinking", 
+        "google/gemini-2.0-flash-thinking-exp:free", 
+        "google/gemini-2.0-flash-thinking-exp-1219:free",
+        "deepseek/deepseek-r1-zero:free",
+        "deepseek/deepseek-r1:free", 
+        "deepseek/deepseek-r1",
+        "openai/o1",
+        "openai/o1-mini-2024-09-12",
+        "openai/o1-preview",
+        "openai/o1-mini",
+        "openai/o3-mini-high",
+        "openai/o3-mini",
+        "google/gemini-2.0-flash-thinking-exp:free",
+        "qwen/qwq-32b",
+        "qwen/qwq-32b:free"
+        
+    ]
+    
+    # Check if the model ID starts with any of the compatible prefixes
+    return any(model_id.startswith(prefix) for prefix in thinking_compatible_models)
+
 def chat_with_model(config, conversation_history=None, plugins=None):
     if plugins is None:
         plugins = []
@@ -823,19 +864,29 @@ def chat_with_model(config, conversation_history=None, plugins=None):
         plugin_commands.extend(plugin.get_commands())
     
     if conversation_history is None:
-        # Make the thinking instruction more explicit and mandatory
-        thinking_instruction = (
-            f"{config['system_instructions']}\n\n"
-            "CRITICAL INSTRUCTION: For EVERY response without exception, you MUST first explain your "
-            "thinking process between <thinking> and </thinking> tags, even for simple greetings or short "
-            "responses. This thinking section should explain your reasoning and approach. "
-            "After the thinking section, provide your final response. Example format:\n"
-            "<thinking>Here I analyze what to say, considering context and appropriate responses...</thinking>\n"
-            "This is my actual response to the user."
-        )
+        # Use user's thinking mode preference instead of model detection
+        if config['thinking_mode']:
+            # Make the thinking instruction more explicit and mandatory
+            thinking_instruction = (
+                f"{config['system_instructions']}\n\n"
+                "CRITICAL INSTRUCTION: For EVERY response without exception, you MUST first explain your "
+                "thinking process between <thinking> and </thinking> tags, even for simple greetings or short "
+                "responses. This thinking section should explain your reasoning and approach. "
+                "After the thinking section, provide your final response. Example format:\n"
+                "<thinking>Here I analyze what to say, considering context and appropriate responses...</thinking>\n"
+                "This is my actual response to the user."
+            )
+        else:
+            # Use standard instructions without thinking tags
+            thinking_instruction = config['system_instructions']
+        
         conversation_history = [
             {"role": "system", "content": thinking_instruction}
         ]
+        
+        # Store thinking preference in conversation history for stream_response to use
+        conversation_history.append({"role": "system", "name": "config", "content": 
+                                   f"thinking_mode: {config['thinking_mode']}"})
     
     headers = {
         "Authorization": f"Bearer {config['api_key']}",
@@ -852,9 +903,10 @@ def chat_with_model(config, conversation_history=None, plugins=None):
         ))
     
     console.print(Panel.fit(
-        f"[bold green]OrChat[/bold green]\n"
+        f"[bold blue]Or[/bold blue][bold green]Chat[/bold green] [dim]v{APP_VERSION}[/dim]\n"
         f"[cyan]Model:[/cyan] {config['model']}\n"
         f"[cyan]Temperature:[/cyan] {config['temperature']}\n"
+        f"[cyan]Thinking mode:[/cyan] {'[green]✓ Enabled[/green]' if config['thinking_mode'] else '[yellow]✗ Not supported by this model[/yellow]'}\n"
         f"[cyan]Session started:[/cyan] {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
         f"Type your message or use commands: /help for available commands",
         title="🤖 Chat Session Active", 
@@ -898,6 +950,7 @@ def chat_with_model(config, conversation_history=None, plugins=None):
                         "/exit - Exit the chat\n"
                         "/new - Start a new conversation\n"
                         "/clear - Clear conversation history\n"
+                        "/cls or /clear-screen - Clear terminal screen\n"  # Add this line
                         "/save - Save conversation to file\n"
                         "/settings - Adjust model settings\n"
                         "/tokens - Show token usage statistics\n"
@@ -909,7 +962,8 @@ def chat_with_model(config, conversation_history=None, plugins=None):
                         "/about - Show information about OrChat\n"
                         "/update - Check for updates\n"
                         "/thinking - Show last AI thinking process\n"
-                        "/attach or /upload - Share a file with the AI\n",
+                        "/thinking-mode - Toggle thinking mode on/off\n"
+                        "/attach or /upload - Share a file with the AI",
                         title="Available Commands"
                     ))
                     continue
@@ -1165,6 +1219,62 @@ def chat_with_model(config, conversation_history=None, plugins=None):
                         console.print("[yellow]No thinking content available from the last response.[/yellow]")
                     continue
                 
+                elif command == '/thinking-mode':
+                    # Toggle thinking mode
+                    config['thinking_mode'] = not config['thinking_mode']
+                    save_config(config)
+                    
+                    # Update conversation history with new setting
+                    # First, remove any existing thinking mode settings
+                    conversation_history = [msg for msg in conversation_history 
+                                           if not (msg.get('name') == 'config' and 'thinking_mode' in msg.get('content', ''))]
+                    
+                    # Add new setting
+                    conversation_history.append({"role": "system", "name": "config", 
+                                               "content": f"thinking_mode: {config['thinking_mode']}"})
+                    
+                    # Also update the system prompt for future messages
+                    if len(conversation_history) > 0 and conversation_history[0]['role'] == 'system':
+                        original_instructions = config['system_instructions']
+                        if config['thinking_mode']:
+                            thinking_instruction = (
+                                f"{original_instructions}\n\n"
+                                "CRITICAL INSTRUCTION: For EVERY response without exception, you MUST first explain your "
+                                "thinking process between <thinking> and </thinking> tags, even for simple greetings or short "
+                                "responses. This thinking section should explain your reasoning and approach. "
+                                "After the thinking section, provide your final response. Example format:\n"
+                                "<thinking>Here I analyze what to say, considering context and appropriate responses...</thinking>\n"
+                                "This is my actual response to the user."
+                            )
+                            conversation_history[0]['content'] = thinking_instruction
+                        else:
+                            # Revert to original instructions without thinking tags
+                            conversation_history[0]['content'] = original_instructions
+                    
+                    console.print(f"[green]Thinking mode is now {'enabled' if config['thinking_mode'] else 'disabled'}[/green]")
+                    continue
+                
+                elif command == '/cls' or command == '/clear-screen':
+                    # Clear the terminal
+                    if os.name == 'nt':  # For Windows
+                        os.system('cls')
+                    else:  # For Unix/Linux/MacOS
+                        os.system('clear')
+                    
+                    # After clearing, redisplay the session header for context
+                    console.print(Panel.fit(
+                        f"[bold blue]Or[/bold blue][bold green]Chat[/bold green] [dim]v{APP_VERSION}[/dim]\n"
+                        f"[cyan]Model:[/cyan] {config['model']}\n"
+                        f"[cyan]Temperature:[/cyan] {config['temperature']}\n"
+                        f"[cyan]Thinking mode:[/cyan] {'[green]✓ Enabled[/green]' if config['thinking_mode'] else '[yellow]✗ Disabled[/yellow]'}\n"
+                        f"[cyan]Session started:[/cyan] {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+                        f"Type your message or use commands: /help for available commands",
+                        title="🤖 Chat Session Active", 
+                        border_style="green"
+                    ))
+                    console.print("[green]Terminal screen cleared. Chat session continues.[/green]")
+                    continue
+                
                 else:
                     console.print("[yellow]Unknown command. Type /help for available commands.[/yellow]")
                     continue
@@ -1373,7 +1483,7 @@ def main():
             console.print("[red]Cannot continue without a valid model. Exiting.[/red]")
             sys.exit(1)
     
-    # Check if system instructions are set
+    # Check if system instructions are set - Fix the double-prompt bug
     if not config['system_instructions']:
         console.print("[yellow]No system instructions set. Please enter instructions for the AI.[/yellow]")
         console.print("[bold]Enter system instructions (guide the AI's behavior)[/bold]")
@@ -1390,13 +1500,18 @@ def main():
                 empty_line_count = 0  # Reset counter if non-empty line
                 lines.append(line)
         
-        if lines:
-            config['system_instructions'] = "\n".join(lines)
-            save_config(config)
-        else:
-            console.print("[red]No system instructions provided. Using generic instructions.[/red]")
-            config['system_instructions'] = "You are a helpful AI assistant."
-            save_config(config)
+        # Set system instructions regardless of whether lines is empty
+        config['system_instructions'] = "\n".join(lines) if lines else "You are a helpful AI assistant."
+        
+        # Add a notification only if using default instructions
+        if not lines:
+            console.print("[yellow]No system instructions provided. Using generic instructions.[/yellow]")
+        
+        # Save the config in all cases
+        save_config(config)
+        
+        # Skip the next check since we've already handled it
+        # No need to check for system instructions again
     
     # Handle image analysis if provided
     conversation_history = None
@@ -1811,3 +1926,12 @@ def export_pdf(conversation_history, include_system=False):
         console.print(f"[red]Error creating PDF: {str(e)}[/red]")
         # Fallback to markdown if PDF creation fails
         return export_markdown(conversation_history, include_system)
+
+# 1. Add a new function to clear the terminal screen
+def clear_terminal():
+    """Clear the terminal screen"""
+    # Use a cross-platform approach for clearing the terminal
+    if os.name == 'nt':  # For Windows
+        os.system('cls')
+    else:  # For Unix/Linux/MacOS
+        os.system('clear')
