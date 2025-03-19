@@ -31,7 +31,7 @@ pip install orchat
 
 ```bash
 git clone https://github.com/oop7/OrChat.git
-cd OrChat
+cd orchat
 pip install -r requirements.txt
 python main.py
 ```
