@@ -48,13 +48,18 @@ python main.py
 ## 🏁 Getting Started
 
 1. Install OrChat using one of the methods above
-2. Run the setup wizard:
-   ```bash
-   python main.py --setup
-   ```
-3. Enter your OpenRouter API key when prompted
-4. Select your preferred AI model and configure settings
-5. Start chatting!
+2. Run the setup wizard
+   - if you follow from source PyPI:
+     ```bash
+     orchat --setup
+     ```
+    - if you follow from source method:
+      ```bash
+      python main.py --setup
+      ```
+4. Enter your OpenRouter API key when prompted
+5. Select your preferred AI model and configure settings
+6. Start chatting!
 
 ## ⚙️ Configuration
 
