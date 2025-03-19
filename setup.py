@@ -1,7 +1,8 @@
 from setuptools import setup, find_packages
 from pathlib import Path
-with open("README.md", "r", encoding="utf-8") as fh:
-    long_description = fh.read()
+
+# Use a single method to read the README file
+readme_content = Path('README.md').read_text(encoding='utf-8')
 
 setup(
     name="orchat",
@@ -9,7 +10,7 @@ setup(
     author="oop7",
     author_email="oop7_support@proton.me",
     description="A powerful CLI for chatting with AI models through OpenRouter",
-    long_description=Path('README.md').read_text(encoding='utf-8'),
+    long_description=readme_content,
     long_description_content_type='text/markdown',
     url="https://github.com/oop7/OrChat",
     packages=find_packages(),
