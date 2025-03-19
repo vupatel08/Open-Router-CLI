@@ -6,7 +6,8 @@
 
 A powerful CLI for chatting with AI models through OpenRouter with streaming responses, token tracking, and extensive customization options.
 
-![OrChat Demo](https://raw.githubusercontent.com/oop7/OrChat/main/assets/demo.gif)
+![OrChat screenshot](https://github.com/user-attachments/assets/b74094e2-dbeb-4707-a5dd-8b5f312bf997)
+
 
 ## ✨ Features
 
