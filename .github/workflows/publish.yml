@@ -13,6 +13,11 @@ jobs:
       uses: actions/setup-python@v4
       with:
         python-version: '3.x'
+    - name: Debug - Show setup.py content
+      run: |
+        echo "=== CONTENT OF SETUP.PY ==="
+        cat setup.py
+        echo "=== END OF SETUP.PY ==="
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
