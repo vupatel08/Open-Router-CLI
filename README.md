@@ -1,6 +1,6 @@
 # OrChat
 
-[![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](https://github.com/oop7/OrChat/releases)
+[![PyPI version](https://badge.fury.io/py/orchat.svg)](https://badge.fury.io/py/orchat)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.7%2B-blue.svg)](https://www.python.org/downloads/)
 
