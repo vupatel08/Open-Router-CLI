@@ -33,7 +33,7 @@ console = Console()
 
 # Constants for the application
 APP_NAME = "OrChat"
-APP_VERSION = "1.0.0"
+APP_VERSION = "1.1.0"
 REPO_URL = "https://github.com/oop7/OrChat"
 API_URL = "https://api.github.com/repos/oop7/OrChat/releases/latest"
 
@@ -67,7 +67,7 @@ def load_config():
                 'max_tokens': settings.getint('MAX_TOKENS', 8000),
                 'autosave_interval': settings.getint('AUTOSAVE_INTERVAL', 300),
                 'streaming': settings.getboolean('STREAMING', True),
-                'thinking_mode': settings.getboolean('THINKING_MODE', True)  # Add this line
+                'thinking_mode': settings.getboolean('THINKING_MODE', False)  # Changed default to False
             }
     
     # Return defaults if no config file
@@ -80,7 +80,7 @@ def load_config():
         'max_tokens': 8000,
         'autosave_interval': 300,
         'streaming': True,
-        'thinking_mode': True  # Add default thinking mode preference
+        'thinking_mode': False  # Changed default to False
     }
 
 def save_config(config_data):
@@ -165,11 +165,21 @@ def select_model(config):
         # Validate the model name
         model_exists = any(model["id"] == model_name for model in all_models)
         if model_exists:
+            # Ask about thinking mode support
+            try:
+                prompt_for_thinking_mode(config)
+            except Exception as e:
+                console.print(f"[yellow]Error setting thinking mode: {str(e)}. Using default settings.[/yellow]")
             return model_name
         else:
             console.print("[yellow]Warning: Model not found in available models. Using anyway.[/yellow]")
             confirm = Prompt.ask("Continue with this model name? (y/n)", default="y")
             if confirm.lower() == "y":
+                # Ask about thinking mode support
+                try:
+                    prompt_for_thinking_mode(config)
+                except Exception as e:
+                    console.print(f"[yellow]Error setting thinking mode: {str(e)}. Using default settings.[/yellow]")
                 return model_name
             else:
                 return select_model(config)  # Start over
@@ -192,7 +202,13 @@ def select_model(config):
         try:
             index = int(model_choice) - 1
             if 0 <= index < len(all_models):
-                return all_models[index]['id']
+                selected_model = all_models[index]['id']
+                # Ask about thinking mode support
+                try:
+                    prompt_for_thinking_mode(config)
+                except Exception as e:
+                    console.print(f"[yellow]Error setting thinking mode: {str(e)}. Using default settings.[/yellow]")
+                return selected_model
             else:
                 console.print("[red]Invalid selection[/red]")
                 return select_model(config)
@@ -221,7 +237,13 @@ def select_model(config):
         try:
             index = int(model_choice) - 1
             if 0 <= index < len(free_models):
-                return free_models[index]['id']
+                selected_model = free_models[index]['id']
+                # Ask about thinking mode support
+                try:
+                    prompt_for_thinking_mode(config)
+                except Exception as e:
+                    console.print(f"[yellow]Error setting thinking mode: {str(e)}. Using default settings.[/yellow]")
+                return selected_model
             else:
                 console.print("[red]Invalid selection[/red]")
                 Prompt.ask("Press Enter to continue")
@@ -230,6 +252,33 @@ def select_model(config):
             console.print("[red]Please enter a valid number[/red]")
             Prompt.ask("Press Enter to continue")
             return select_model(config)
+
+def prompt_for_thinking_mode(config):
+    """Ask if the selected model supports thinking mode"""
+    console.print("[yellow]Some models support showing AI reasoning with <thinking></thinking> tags.[/yellow]")
+    thinking_support = Prompt.ask(
+        "Do you know if this model supports thinking mode?",
+        choices=["y", "n", "unknown"], 
+        default="n"  # Changed from unknown to n
+    )
+    
+    # Make sure the thinking_mode key exists in config
+    if 'thinking_mode' not in config:
+        config['thinking_mode'] = False  # Default to disabled
+    
+    if thinking_support.lower() == "y":
+        config['thinking_mode'] = True
+        console.print("[green]Thinking mode enabled for this model.[/green]")
+    elif thinking_support.lower() == "n":
+        config['thinking_mode'] = False
+        console.print("[yellow]Thinking mode disabled for this model.[/yellow]")
+    else:
+        # For unknown, keep the current setting
+        console.print(f"[yellow]Keeping current thinking mode setting: {'enabled' if config['thinking_mode'] else 'disabled'}[/yellow]")
+        console.print("[dim]You can toggle this setting anytime with /thinking-mode[/dim]")
+    
+    # Don't save the config during model selection - just update the thinking_mode value
+    # The calling function will handle saving when all settings are complete
 
 def setup_wizard():
     """Interactive setup wizard for first-time users"""
@@ -242,11 +291,12 @@ def setup_wizard():
     api_key = Prompt.ask("Enter your OpenRouter API key")
     
     # Save API key temporarily to allow model fetching
-    temp_config = {'api_key': api_key}
+    temp_config = {'api_key': api_key, 'thinking_mode': False}  # Default to disabled
     
     # Use the simplified model selection
     console.print("[bold]Select an AI model to use:[/bold]")
     model = ""
+    thinking_mode = False  # Default value - disabled
     try:
         with console.status("[bold green]Connecting to OpenRouter...[/bold green]"):
             # Small delay to ensure the API key is registered
@@ -255,6 +305,8 @@ def setup_wizard():
         selected_model = select_model(temp_config)
         if selected_model:
             model = selected_model
+            # Use the thinking_mode value that was set during model selection
+            thinking_mode = temp_config.get('thinking_mode', False)
         else:
             console.print("[yellow]Model selection cancelled. You can set a model later.[/yellow]")
     except Exception as e:
@@ -280,7 +332,13 @@ def setup_wizard():
         else:
             empty_line_count = 0  # Reset counter if non-empty line
             lines.append(line)
-    system_instructions = "\n".join(lines) if lines else ""
+    
+    # If no instructions provided, use a default value
+    if not lines:
+        system_instructions = "You are a helpful AI assistant."
+        console.print("[yellow]No system instructions provided. Using default instructions.[/yellow]")
+    else:
+        system_instructions = "\n".join(lines)
     
     # Add theme selection
     available_themes = ['default', 'dark', 'light', 'hacker']
@@ -289,12 +347,24 @@ def setup_wizard():
         console.print(f"- {theme}")
     theme_choice = Prompt.ask("Select theme", choices=available_themes, default="default")
     
-    # After theme selection, add thinking mode preference with 'n' as default
-    thinking_mode = Prompt.ask(
-        "Enable thinking mode? (Shows AI reasoning process)",
-        choices=["y", "n"], 
-        default="n"  # Changed from "y" to "n"
-    ).lower() == "y"
+    # We already asked about thinking mode during model selection, so we'll use that value
+    # Only ask if model selection failed or was cancelled
+    if not model:
+        # Enhanced thinking mode explanation
+        console.print(Panel.fit(
+            "[yellow]Thinking Mode:[/yellow]\n\n"
+            "Thinking mode shows the AI's reasoning process between <thinking> and </thinking> tags.\n"
+            "This reveals how the AI approaches your questions and can help you understand its thought process.\n\n"
+            "[dim]Note: Not all models support this feature. If you notice issues with responses, you can disable it later with /thinking-mode[/dim]",
+            title="🧠 AI Reasoning Process",
+            border_style="yellow"
+        ))
+        
+        thinking_mode = Prompt.ask(
+            "Enable thinking mode?",
+            choices=["y", "n"], 
+            default="n"
+        ).lower() == "y"
     
     config_data = {
         'api_key': api_key,
@@ -305,7 +375,7 @@ def setup_wizard():
         'max_tokens': 8000,
         'autosave_interval': 300,
         'streaming': True,
-        'thinking_mode': thinking_mode  # Add this line
+        'thinking_mode': thinking_mode
     }
     
     save_config(config_data)
@@ -333,7 +403,7 @@ def format_file_size(size_bytes):
     else:
         return f"{size_bytes / (1024 * 1024 * 1024):.1f} GB"
 
-def stream_response(response, start_time):
+def stream_response(response, start_time, thinking_mode=False):
     """Stream the response from the API with proper text formatting"""
     console.print("\n[bold green]Assistant[/bold green]")
     
@@ -342,9 +412,6 @@ def stream_response(response, start_time):
     # For thinking detection
     thinking_content = ""
     in_thinking = False
-    
-    # Check for thinking mode preference (default to True for backward compatibility)
-    thinking_mode = True
     
     # Create a temporary file to collect all content
     # This avoids terminal display issues
@@ -427,10 +494,24 @@ def stream_response(response, start_time):
         thinking_section = "\n".join(thinking_matches)
         # Update the global thinking content variable
         last_thinking_content = thinking_section
+        
+        # Display thinking content immediately if found
+        console.print(Panel.fit(
+            last_thinking_content,
+            title="🧠 AI Thinking Process",
+            border_style="yellow"
+        ))
     else:
         # Also check if thinking_content has any content from our incremental collection
         if thinking_content.strip():
             last_thinking_content = thinking_content
+            
+            # Display thinking content immediately if found
+            console.print(Panel.fit(
+                last_thinking_content,
+                title="🧠 AI Thinking Process",
+                border_style="yellow"
+            ))
     
     # Clean the full content - only if model supports thinking
     cleaned_content = full_content
@@ -832,28 +913,22 @@ def check_for_updates():
 
 def model_supports_thinking(model_id):
     """Determine if a model properly supports the thinking tag format"""
-    # List of models known to support thinking tags correctly
-    thinking_compatible_models = [
-        "anthropic/claude-3.7-sonnet:thinking", 
-        "google/gemini-2.0-flash-thinking-exp:free", 
-        "google/gemini-2.0-flash-thinking-exp-1219:free",
-        "deepseek/deepseek-r1-zero:free",
-        "deepseek/deepseek-r1:free", 
-        "deepseek/deepseek-r1",
-        "openai/o1",
-        "openai/o1-mini-2024-09-12",
-        "openai/o1-preview",
-        "openai/o1-mini",
-        "openai/o3-mini-high",
-        "openai/o3-mini",
-        "google/gemini-2.0-flash-thinking-exp:free",
-        "qwen/qwq-32b",
-        "qwen/qwq-32b:free"
-        
-    ]
+    # Instead of a hardcoded list, ask the user if they know their model supports thinking
+    console.print("[yellow]Note: Some models support showing thinking processes with <thinking></thinking> tags.[/yellow]")
+    enable_thinking = Prompt.ask(
+        "Do you know if this model supports thinking mode?",
+        choices=["y", "n", "unknown"], 
+        default="unknown"
+    )
     
-    # Check if the model ID starts with any of the compatible prefixes
-    return any(model_id.startswith(prefix) for prefix in thinking_compatible_models)
+    if enable_thinking.lower() == "y":
+        return True
+    elif enable_thinking.lower() == "n":
+        return False
+    else:
+        # For unknown models, default to enabled but warn the user
+        console.print("[yellow]Enabling thinking mode by default. If you notice issues with model responses, you can disable it with /thinking-mode[/yellow]")
+        return True
 
 def chat_with_model(config, conversation_history=None, plugins=None):
     if plugins is None:
@@ -907,7 +982,7 @@ def chat_with_model(config, conversation_history=None, plugins=None):
         f"[bold blue]Or[/bold blue][bold green]Chat[/bold green] [dim]v{APP_VERSION}[/dim]\n"
         f"[cyan]Model:[/cyan] {config['model']}\n"
         f"[cyan]Temperature:[/cyan] {config['temperature']}\n"
-        f"[cyan]Thinking mode:[/cyan] {'[green]✓ Enabled[/green]' if config['thinking_mode'] else '[yellow]✗ Not supported by this model[/yellow]'}\n"
+        f"[cyan]Thinking mode:[/cyan] {'[green]✓ Enabled[/green]' if config['thinking_mode'] else '[yellow]✗ Disabled[/yellow]'}\n"
         f"[cyan]Session started:[/cyan] {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
         f"Type your message or use commands: /help for available commands",
         title="🤖 Chat Session Active", 
@@ -1335,7 +1410,8 @@ def chat_with_model(config, conversation_history=None, plugins=None):
                 )
                 
                 if response.status_code == 200:
-                    message_content, response_time = stream_response(response, start_time)
+                    # Pass config['thinking_mode'] to stream_response
+                    message_content, response_time = stream_response(response, start_time, config['thinking_mode'])
                     
                     # Only add to history if we got actual content
                     if message_content:
@@ -1484,35 +1560,13 @@ def main():
             console.print("[red]Cannot continue without a valid model. Exiting.[/red]")
             sys.exit(1)
     
-    # Check if system instructions are set - Fix the double-prompt bug
+    # Check if system instructions are set - make sure we don't prompt again after setup
     if not config['system_instructions']:
-        console.print("[yellow]No system instructions set. Please enter instructions for the AI.[/yellow]")
-        console.print("[bold]Enter system instructions (guide the AI's behavior)[/bold]")
-        console.print("[dim]Press Enter twice to finish[/dim]")
-        lines = []
-        empty_line_count = 0
-        while True:
-            line = input()
-            if not line:
-                empty_line_count += 1
-                if empty_line_count >= 2:  # Exit after two consecutive empty lines
-                    break
-            else:
-                empty_line_count = 0  # Reset counter if non-empty line
-                lines.append(line)
-        
-        # Set system instructions regardless of whether lines is empty
-        config['system_instructions'] = "\n".join(lines) if lines else "You are a helpful AI assistant."
-        
-        # Add a notification only if using default instructions
-        if not lines:
-            console.print("[yellow]No system instructions provided. Using generic instructions.[/yellow]")
-        
-        # Save the config in all cases
+        # Only prompt for system instructions if they weren't already set during setup
+        # Set a default value without prompting
+        config['system_instructions'] = "You are a helpful AI assistant."
+        console.print("[yellow]No system instructions set. Using default instructions.[/yellow]")
         save_config(config)
-        
-        # Skip the next check since we've already handled it
-        # No need to check for system instructions again
     
     # Handle image analysis if provided
     conversation_history = None
