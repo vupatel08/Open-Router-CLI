@@ -33,7 +33,7 @@ console = Console()
 
 # Constants for the application
 APP_NAME = "OrChat"
-APP_VERSION = "1.1.0"
+APP_VERSION = "1.2.0"
 REPO_URL = "https://github.com/oop7/OrChat"
 API_URL = "https://api.github.com/repos/oop7/OrChat/releases/latest"
 
