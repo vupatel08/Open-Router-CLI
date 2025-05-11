@@ -137,7 +137,7 @@ Supported file types:
 
 ## 🧠 Thinking Mode
 
-With compatible models (Claude 3.7 Sonnet, Gemini, DeepSeek, Qwen, etc.), OrChat can display the AI's reasoning process:
+OrChat can display the AI's reasoning process:
 
 ```
 /thinking-mode       # Toggle thinking mode on/off
