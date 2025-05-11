@@ -483,7 +483,8 @@ def save_conversation(conversation_history, filename, format="markdown"):
             for msg in conversation_history:
                 f.write(f"<div class='{msg['role']}'>\n")
                 f.write(f"<h2>{msg['role'].capitalize()}</h2>\n")
-                f.write(f"<p>{msg['content'].replace('\n', '<br>')}</p>\n")
+                content_html = msg['content'].replace('\n', '<br>')
+                f.write(f"<p>{content_html}</p>\n")
                 f.write("</div>\n")
             
             f.write("</body>\n</html>")
@@ -1830,33 +1831,35 @@ def export_json(conversation_history, include_system=True):
     else:
         return json.dumps(conversation_history, indent=2)
 
+import datetime
+
 def export_html(conversation_history, include_system=False):
     """Export conversation to HTML format"""
-    html = """<!DOCTYPE html>
+    html = ("""<!DOCTYPE html>
 <html>
 <head>
     <title>OrChat Conversation</title>
     <style>
         body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
-        .system { background-color: #f0f0f0; padding: 10px; border-radius: 5px; }\n")
-        .user { background-color: #e1f5fe; padding: 10px; border-radius: 5px; margin: 10px 0; }\n")
-        .assistant { background-color: #f1f8e9; padding: 10px; border-radius: 5px; margin: 10px 0; }\n")
+        .system { background-color: #f0f0f0; padding: 10px; border-radius: 5px; }
+        .user { background-color: #e1f5fe; padding: 10px; border-radius: 5px; margin: 10px 0; }
+        .assistant { background-color: #f1f8e9; padding: 10px; border-radius: 5px; margin: 10px 0; }
         h1, h2 { color: #333; }
     </style>
 </head>
 <body>
     <h1>OrChat Conversation</h1>
-    <p>Date: {}</p>
-""".format(datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+    <p>Date: """ + datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S') + "</p>\n")
 
     for msg in conversation_history:
         if msg['role'] == 'system' and not include_system:
             continue
         
+        content_html = msg['content'].replace('\n', '<br>')
         html += f"""
     <div class="{msg['role']}">
         <h2>{msg['role'].capitalize()}</h2>
-        <p>{msg['content'].replace('\n', '<br>')}</p>
+        <p>{content_html}</p>
     </div>
 """
     
@@ -1865,6 +1868,7 @@ def export_html(conversation_history, include_system=False):
 </html>
 """
     return html
+
 
 def export_txt(conversation_history, include_system=False):
     """Export conversation to plain text format"""
