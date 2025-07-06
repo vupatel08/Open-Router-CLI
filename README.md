@@ -1,13 +1,20 @@
-# OrChat
+<div align="center">
 
-[![PyPI version](https://badge.fury.io/py/orchat.svg)](https://badge.fury.io/py/orchat)
-[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Python](https://img.shields.io/badge/python-3.7%2B-blue.svg)](https://www.python.org/downloads/)
+# 🤖 OrChat
+
+<img src="https://github.com/user-attachments/assets/b74094e2-dbeb-4707-a5dd-8b5f312bf997" width="800" alt="OrChat Interface"/>
+
+[![PyPI version](https://img.shields.io/pypi/v/orchat?color=86efac&style=for-the-badge&logo=pypi&logoColor=black)](https://badge.fury.io/py/orchat)
+[![License: MIT](https://img.shields.io/badge/License-MIT-10b981?style=for-the-badge&logo=opensource&logoColor=white)](https://opensource.org/licenses/MIT)
+[![Python 3.7+](https://img.shields.io/badge/python-3.7+-10b981?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/downloads/)
+[![Downloads](https://img.shields.io/pypi/dm/orchat?color=1f2937&style=for-the-badge&logo=download&logoColor=white)](https://pepy.tech/project/orchat)
+[![GitHub Stars](https://img.shields.io/github/stars/oop7/OrChat?color=86efac&style=for-the-badge&logo=github&logoColor=black)](https://github.com/oop7/OrChat/stargazers)
+
+[🚀 Installation](#installation) • [✨ Features](#features) • [💬 Chat Commands](#chat-commands) • [📁 File Attachment](#file-attachment) • [🧠 Thinking Mode](#thinking-mode) • [⚙️ Configuration](#configuration) • [🔍 Troubleshooting](#troubleshooting) • [🤝 Contributing](#contributing)
 
 A powerful CLI for chatting with AI models through OpenRouter with streaming responses, token tracking, and extensive customization options.
 
-![OrChat screenshot](https://github.com/user-attachments/assets/b74094e2-dbeb-4707-a5dd-8b5f312bf997)
-
+<a id="features"></a>
 ## ✨ Features
 
 - **Universal Model Access**: Connect to any AI model available on OpenRouter
@@ -16,12 +23,13 @@ A powerful CLI for chatting with AI models through OpenRouter with streaming res
 - **Performance Analytics**: Track token usage and response times for cost efficiency
 - **Multimodal Support**: Share images and various file types with compatible AI models
 - **Smart Thinking Mode**: See the AI's reasoning process with compatible models
-- **Extensible Plugin System**: Easily extend functionality with custom plugins
+- **Enhanced File Processing**: Improved file attachment with better error handling and path support
 - **Multiple Export Formats**: Save conversations as Markdown, HTML, JSON, TXT, or PDF
 - **Smart Context Management**: Automatically manages conversation history to stay within token limits
 - **Customizable Themes**: Choose from different visual themes for your terminal
 - **File Attachment Support**: Share files of various types with the AI for analysis
 
+<a id="installation"></a>
 ## 🚀 Installation
 
 ### From PyPI (Recommended)
@@ -62,7 +70,7 @@ python main.py
 
 ## 🪛 Add-Ons
 
-### FZF fuzzy search
+### FZF fuzzy search (Enhanced Model Selection)
 
 1. Install fzf and pyfzf
 
@@ -73,8 +81,9 @@ python main.py
    - Fzf can be downloaded from https://github.com/junegunn/fzf?tab=readme-ov-file#installation
 
 2. Ensure fzf is in your path
-3. From now on, the model selection will use fzf to search!
+3. From now on, the model selection will use fzf for powerful fuzzy search and filtering capabilities!
 
+<a id="configuration"></a>
 ## ⚙️ Configuration
 
 OrChat can be configured in multiple ways:
@@ -82,7 +91,9 @@ OrChat can be configured in multiple ways:
 1. **Setup Wizard**: Run `python main.py --setup` for interactive configuration
 2. **Config File**: Edit the `config.ini` file in the application directory
 3. **Environment Variables**: Create a `.env` file with your configuration
-4. **System Environment Variables**: Set the OPENROUTER_API_KEY on the user/system environment.
+4. **System Environment Variables**: Set environment variables directly in your system (recommended for security)
+
+**Enhanced Environment Support**: OrChat now supports system/user environment variables, removing the strict requirement for `.env` files.
 
 Example `.env` file:
 
@@ -104,7 +115,7 @@ THEME = default
 MAX_TOKENS = 8000
 AUTOSAVE_INTERVAL = 300
 STREAMING = True
-THINKING_MODE = True
+THINKING_MODE = False
 ```
 
 ## 🖥️ Command-Line Options
@@ -114,6 +125,7 @@ THINKING_MODE = True
 - `--task {creative,coding,analysis,chat}`: Optimize for a specific task type
 - `--image PATH`: Analyze an image file
 
+<a id="chat-commands"></a>
 ## 💬 Chat Commands
 
 | Command                   | Description                                           |
@@ -133,62 +145,54 @@ THINKING_MODE = True
 | `/theme <theme>`          | Change the color theme (default, dark, light, hacker) |
 | `/thinking`               | Show last AI thinking process                         |
 | `/thinking-mode`          | Toggle thinking mode on/off                           |
-| `/attach` or `/upload`    | Share a file with the AI                              |
+| `/attach` or `/upload`    | Share a file with the AI (can be used anywhere in your message) |
 | `/about`                  | Show information about OrChat                         |
 | `/update`                 | Check for updates                                     |
 | `/settings`               | View current settings                                 |
 
+<a id="file-attachment"></a>
 ## 📁 File Attachment
 
-Share files with the AI for analysis:
+Share files with the AI for analysis using the enhanced attachment system:
 
 ```
 /attach path/to/your/file.ext
+/upload path/to/your/file.ext
 ```
+
+**Enhanced Features:**
+- **Flexible Command Usage**: `/upload` and `/attach` can be used anywhere in your message, not just at the beginning
+- **Quoted Path Support**: Handles file paths with spaces using quotes (`/attach "C:\path with spaces\file.txt"`)
+- **Better Error Handling**: Improved error messages and usage examples
+- **File Preview**: Shows file metadata and preview before processing
+- **Security Validation**: Built-in file size and type validation (10MB limit)
 
 Supported file types:
 
-- **Images**: JPG, PNG, GIF, WEBP (displayed visually with multimodal models)
-- **Code Files**: Python, JavaScript, Java, C++, etc. (with syntax highlighting)
+- **Images**: JPG, PNG, GIF, WEBP, BMP (displayed visually with multimodal models)
+- **Code Files**: Python, JavaScript, Java, C++, TypeScript, Swift, etc. (with syntax highlighting)
 - **Text Documents**: TXT, MD, CSV (full content displayed)
 - **Data Files**: JSON, XML (displayed with formatting)
-- **PDFs and Archives**: Basic metadata support
+- **Web Files**: HTML, CSS (formatted display)
+- **Archives**: ZIP, TAR, GZ, RAR (basic metadata support)
 
+<a id="thinking-mode"></a>
 ## 🧠 Thinking Mode
 
-OrChat can display the AI's reasoning process:
+OrChat can display the AI's reasoning process with enhanced thinking mode:
 
 ```
 /thinking-mode       # Toggle thinking mode on/off
 /thinking            # Show the most recent thinking process
 ```
 
-This feature allows you to see how the AI approached your question before giving its final answer.
+**Enhanced Features:**
+- **Improved Detection**: Better extraction of thinking content from model responses
+- **Model Compatibility**: Automatic handling of models that don't support thinking mode
+- **Visual Indicators**: Clear status indicators showing if thinking mode is enabled
+- **Flexible Setup**: Option to enable/disable during model selection
 
-## 🔌 Plugin System
-
-Extend OrChat's functionality with custom plugins by creating Python files in the `plugins` directory:
-
-```python
-from main import Plugin
-
-class MyCustomPlugin(Plugin):
-    def __init__(self):
-        super().__init__("My Plugin", "Description of what my plugin does")
-
-    def on_message(self, message, role):
-        # Process message before sending/after receiving
-        return message
-
-    def on_command(self, command, args):
-        # Handle custom commands
-        if command == "my_command":
-            return True, "Command executed successfully!"
-        return False, "Command not handled"
-
-    def get_commands(self):
-        return ["/my_command - Description of my custom command"]
-```
+This feature allows you to see how the AI approached your question before giving its final answer. Note that thinking mode works best with models that explicitly support `<thinking>` tags.
 
 ## 🎨 Themes
 
@@ -211,16 +215,31 @@ OrChat intelligently manages conversation context to keep within token limits:
 
 Check for updates with the `/update` command to see if a newer version is available.
 
+## 🆕 Recent Improvements
+
+**Latest enhancements include:**
+
+- **Enhanced Model Compatibility**: Improved handling of models that don't support system messages (like some Gemma variants)
+- **Better Command Parsing**: `/upload` and `/attach` commands can now be used anywhere in your message
+- **Improved Code Quality**: Code refinements based on pylint recommendations for better performance
+- **Enhanced Environment Support**: Better handling of system environment variables
+- **FZF Integration**: Powerful fuzzy search for model selection when fzf is installed
+- **Streamlined User Experience**: Added `quit` as alias for `exit` and improved error messages
+- **Better File Handling**: Enhanced path handling with support for quoted paths and spaces
+
+<a id="troubleshooting"></a>
 ## 🔍 Troubleshooting
 
-- **API Key Issues**: Ensure your OpenRouter API key is correctly set in config.ini or .env file
-- **File Path Problems**: When using `/attach`, make sure to use the correct path format for your OS
+- **API Key Issues**: Ensure your OpenRouter API key is correctly set in config.ini, .env file, or system environment variables
+- **File Path Problems**: When using `/attach` or `/upload`, use quotes for paths with spaces and ensure correct path format for your OS
 - **Model Compatibility**: Some features like thinking mode only work with specific models
+- **Command Usage**: Remember that `/upload` and `/attach` can be used anywhere in your message for flexibility
 
 ## 📝 License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
+<a id="contributing"></a>
 ## 🤝 Contributing
 
 Contributions are welcome! Feel free to open issues or submit pull requests.
