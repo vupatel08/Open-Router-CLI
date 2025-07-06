@@ -16,6 +16,7 @@ A powerful CLI for chatting with AI models through OpenRouter with streaming res
 
 </div>
 
+
 <a id="features"></a>
 ## ✨ Features
 
@@ -38,6 +39,10 @@ A powerful CLI for chatting with AI models through OpenRouter with streaming res
 
 ```bash
 pip install orchat
+```
+```bash
+# Run the application
+orchat
 ```
 
 ### From Source
