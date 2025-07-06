@@ -1,3 +1,25 @@
+# Python cache
+__pycache__/
+*.py[cod]
+
+# Secrets & local config
 *.ini
-*.pyc
 *.key
+*.env
+*.session
+
+# Ignore sessions folder
+sessions/
+
+# Build artifacts
+*.egg-info/
+build/
+dist/
+
+# Logs
+*.log
+
+# Editor & OS files
+.vscode/
+.idea/
+.DS_Store
