@@ -8,11 +8,13 @@ import datetime
 import tempfile
 import subprocess
 import re
-import importlib.util
 import base64
 import webbrowser
 import urllib.request
 from collections import Counter
+import hashlib
+from cryptography.fernet import Fernet
+import getpass
 
 import colorama
 import requests
@@ -22,13 +24,9 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.prompt import Prompt
 from packaging import version
-#from colorama import Fore, Style
-#from rich.markdown import Markdown
-#from rich.progress import Progress
-#from rich.syntax import Syntax
 
 try:
-    from pyfzf.pyfzf import FzfPrompt
+    from pyfzf.pyfzf import FzfPrompt  # type: ignore
     HAS_FZF=True
 except ImportError:
     HAS_FZF=False
@@ -45,8 +43,81 @@ APP_VERSION = "1.2.1"
 REPO_URL = "https://github.com/oop7/OrChat"
 API_URL = "https://api.github.com/repos/oop7/OrChat/releases/latest"
 
+# Security constants
+MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB limit
+ALLOWED_FILE_EXTENSIONS = {
+    '.txt', '.md', '.py', '.js', '.java', '.cpp', '.c', '.cs', '.go', '.rb', '.php', '.ts', '.swift',
+    '.json', '.xml', '.html', '.css', '.csv', '.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'
+}
+
 # Add a new global variable at the top of the file
 last_thinking_content = ""
+
+def clear_terminal():
+    """Clear the terminal screen"""
+    # Use a cross-platform approach for clearing the terminal
+    print("\x1b[2J\x1b[H")
+
+def generate_key():
+    """Generate a key for encryption"""
+    return Fernet.generate_key()
+
+def encrypt_api_key(api_key, key):
+    """Encrypt API key using Fernet symmetric encryption"""
+    f = Fernet(key)
+    encrypted_key = f.encrypt(api_key.encode())
+    return encrypted_key
+
+def decrypt_api_key(encrypted_key, key):
+    """Decrypt API key using Fernet symmetric encryption"""
+    try:
+        f = Fernet(key)
+        decrypted_key = f.decrypt(encrypted_key)
+        return decrypted_key.decode()
+    except Exception:
+        return None
+
+def get_or_create_master_key():
+    """Get or create master encryption key"""
+    key_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.key')
+    
+    if os.path.exists(key_file):
+        with open(key_file, 'rb') as f:
+            return f.read()
+    else:
+        key = generate_key()
+        # Set restrictive file permissions (Windows compatible)
+        with open(key_file, 'wb') as f:
+            f.write(key)
+        
+        # Set file permissions to be readable only by owner (Unix-like systems)
+        if os.name != 'nt':  # Not Windows
+            os.chmod(key_file, 0o600)
+        
+        return key
+
+def validate_api_key_format(api_key):
+    """Validate API key format"""
+    if not api_key or len(api_key) < 20:
+        return False
+    
+    # OpenRouter keys typically start with 'sk-or-'
+    if not api_key.startswith('sk-or-'):
+        console.print("[yellow]Warning: API key doesn't match expected OpenRouter format[/yellow]")
+    
+    return True
+
+def secure_input_api_key():
+    """Securely input API key without echoing to console"""
+    try:
+        api_key = getpass.getpass("Enter your OpenRouter API key (input hidden): ")
+        if not validate_api_key_format(api_key):
+            console.print("[red]Invalid API key format[/red]")
+            return None
+        return api_key
+    except KeyboardInterrupt:
+        console.print("\n[yellow]API key input cancelled[/yellow]")
+        return None
 
 def load_config():
     """Load configuration from .env file and/or config.ini"""
@@ -60,8 +131,23 @@ def load_config():
 
     if os.path.exists(config_file):
         config.read(config_file)
-        if 'API' in config and 'OPENROUTER_API_KEY' in config['API']:
-            if config['API']['OPENROUTER_API_KEY']:
+        if 'API' in config:
+            # Try to load encrypted API key first
+            if 'OPENROUTER_API_KEY_ENCRYPTED' in config['API']:
+                try:
+                    encrypted_key_b64 = config['API']['OPENROUTER_API_KEY_ENCRYPTED']
+                    encrypted_key = base64.b64decode(encrypted_key_b64)
+                    master_key = get_or_create_master_key()
+                    decrypted_key = decrypt_api_key(encrypted_key, master_key)
+                    if decrypted_key:
+                        api_key = decrypted_key
+                    else:
+                        console.print("[yellow]Warning: Could not decrypt API key. Please re-enter it.[/yellow]")
+                except Exception as e:
+                    console.print(f"[yellow]Warning: Error decrypting API key: {str(e)}[/yellow]")
+            
+            # Fallback to plaintext API key
+            elif 'OPENROUTER_API_KEY' in config['API'] and config['API']['OPENROUTER_API_KEY']:
                 api_key = config['API']['OPENROUTER_API_KEY']
 
         # Load other settings if available
@@ -93,10 +179,24 @@ def load_config():
     }
 
 def save_config(config_data):
-    """Save configuration to config.ini file"""
+    """Save configuration to config.ini file with encrypted API key"""
     config = configparser.ConfigParser()
-    if 'OPENROUTER_API_KEY' not in os.environ:
+    
+    # Handle API key encryption if not in environment
+    if 'OPENROUTER_API_KEY' not in os.environ and config_data.get('api_key'):
+        try:
+            # Encrypt the API key before saving
+            master_key = get_or_create_master_key()
+            encrypted_key = encrypt_api_key(config_data['api_key'], master_key)
+            # Store as base64 for config file compatibility
+            encrypted_key_b64 = base64.b64encode(encrypted_key).decode('utf-8')
+            config['API'] = {'OPENROUTER_API_KEY_ENCRYPTED': encrypted_key_b64}
+        except Exception as e:
+            console.print(f"[yellow]Warning: Could not encrypt API key: {str(e)}. Saving in plaintext.[/yellow]")
+            config['API'] = {'OPENROUTER_API_KEY': config_data['api_key']}
+    elif 'OPENROUTER_API_KEY' not in os.environ:
         config['API'] = {'OPENROUTER_API_KEY': config_data['api_key']}
+    
     config['SETTINGS'] = {
         'MODEL': config_data['model'],
         'TEMPERATURE': str(config_data['temperature']),
@@ -105,13 +205,22 @@ def save_config(config_data):
         'MAX_TOKENS': str(config_data['max_tokens']),
         'AUTOSAVE_INTERVAL': str(config_data['autosave_interval']),
         'STREAMING': str(config_data['streaming']),
-        'THINKING_MODE': str(config_data['thinking_mode'])  # Add this line
+        'THINKING_MODE': str(config_data['thinking_mode'])
     }
 
     config_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config.ini')
-    with open(config_file, 'w', encoding="utf-8") as f:
-        config.write(f)
-    console.print("[green]Configuration saved successfully![/green]")
+    
+    try:
+        with open(config_file, 'w', encoding="utf-8") as f:
+            config.write(f)
+        
+        # Set restrictive permissions on config file (Unix-like systems)
+        if os.name != 'nt':  # Not Windows
+            os.chmod(config_file, 0o600)
+        
+        console.print("[green]Configuration saved successfully![/green]")
+    except Exception as e:
+        console.print(f"[red]Error saving configuration: {str(e)}[/red]")
 
 def count_tokens(text, model_name="cl100k_base"):
     """Counts the number of tokens in a given text string using tiktoken."""
@@ -311,7 +420,12 @@ def setup_wizard():
     ))
 
     if "OPENROUTER_API_KEY" not in os.environ:
-        api_key = Prompt.ask("Enter your OpenRouter API key")
+        console.print("[bold yellow]🔐 API Key Setup[/bold yellow]")
+        console.print("[dim]Your API key will be encrypted and stored securely[/dim]")
+        api_key = secure_input_api_key()
+        if not api_key:
+            console.print("[red]Setup cancelled - no valid API key provided[/red]")
+            return None
     else:
         api_key = os.getenv("OPENROUTER_API_KEY")
 
@@ -634,68 +748,146 @@ def manage_context_window(conversation_history, max_tokens=8000, model_name="cl1
 
     return trimmed_history, trimmed_count
 
+def validate_file_security(file_path):
+    """Validate file for security concerns before processing"""
+    try:
+        # Check if file exists and is readable
+        if not os.path.exists(file_path):
+            return False, "File does not exist"
+        
+        if not os.path.isfile(file_path):
+            return False, "Path is not a file"
+        
+        # Check file size
+        file_size = os.path.getsize(file_path)
+        if file_size > MAX_FILE_SIZE:
+            return False, f"File too large ({format_file_size(file_size)}). Maximum allowed: {format_file_size(MAX_FILE_SIZE)}"
+        
+        # Check file extension
+        file_ext = os.path.splitext(file_path)[1].lower()
+        if file_ext not in ALLOWED_FILE_EXTENSIONS:
+            return False, f"File type '{file_ext}' not allowed. Allowed types: {', '.join(sorted(ALLOWED_FILE_EXTENSIONS))}"
+        
+        # Basic path traversal prevention
+        normalized_path = os.path.normpath(file_path)
+        if '..' in normalized_path:
+            return False, "Invalid file path detected"
+        
+        # Check for executable files (additional security)
+        dangerous_extensions = {'.exe', '.bat', '.cmd', '.com', '.scr', '.pif', '.vbs', '.jar', '.sh'}
+        if file_ext in dangerous_extensions:
+            return False, f"Executable file type '{file_ext}' not allowed for security reasons"
+        
+        return True, "File validation passed"
+    
+    except Exception as e:
+        return False, f"File validation error: {str(e)}"
+
 def process_file_upload(file_path, conversation_history):
     """Process a file upload and add its contents to the conversation"""
     try:
-        with open(file_path, 'r', encoding="utf-8") as f:
-            content = f.read()
+        # Validate file security first
+        is_valid, validation_message = validate_file_security(file_path)
+        if not is_valid:
+            return False, f"Security validation failed: {validation_message}"
+
+        # Read file with proper encoding handling
+        try:
+            with open(file_path, 'r', encoding="utf-8") as f:
+                content = f.read()
+        except UnicodeDecodeError:
+            # Try with different encoding for non-UTF8 files
+            with open(file_path, 'r', encoding="latin-1") as f:
+                content = f.read()
+        
+        # Limit content size for processing
+        max_content_length = 50000  # 50KB of text content
+        if len(content) > max_content_length:
+            content = content[:max_content_length] + "\n\n[Content truncated due to size limit]"
 
         file_ext = os.path.splitext(file_path)[1].lower()
         file_name = os.path.basename(file_path)
 
+        # Sanitize file name to prevent issues
+        safe_file_name = re.sub(r'[<>:"/\\|?*]', '_', file_name)
+
         # Determine file type and create appropriate message
         if file_ext in ['.py', '.js', '.java', '.cpp', '.c', '.cs', '.go', '.rb', '.php', '.ts', '.swift']:
             file_type = "code"
-            message = f"I'm uploading a code file named '{file_name}'. Please analyze it:\n\n```{file_ext[1:]}\n{content}\n```"
+            message = f"I'm uploading a code file named '{safe_file_name}'. Please analyze it:\n\n```{file_ext[1:]}\n{content}\n```"
         elif file_ext in ['.txt', '.md', '.csv', '.json', '.xml', '.html', '.css']:
             file_type = "text"
-            message = f"I'm uploading a text file named '{file_name}'. Here are its contents:\n\n{content}"
+            message = f"I'm uploading a text file named '{safe_file_name}'. Here are its contents:\n\n{content}"
         else:
             file_type = "unknown"
-            message = f"I'm uploading a file named '{file_name}'. Here are its contents:\n\n{content}"
+            message = f"I'm uploading a file named '{safe_file_name}'. Here are its contents:\n\n{content}"
 
         # Add to conversation history
         conversation_history.append({"role": "user", "content": message})
-        return True, f"File '{file_name}' uploaded successfully as {file_type}."
+        return True, f"File '{safe_file_name}' uploaded successfully as {file_type}."
     except Exception as e:
+        console.print(f"[red]File processing error: {str(e)}[/red]")
         return False, f"Error processing file: {str(e)}"
 
 def handle_attachment(file_path, conversation_history):
     """Enhanced file attachment handling with preview and metadata"""
     try:
+        # Validate file security first
+        is_valid, validation_message = validate_file_security(file_path)
+        if not is_valid:
+            return False, f"Security validation failed: {validation_message}"
+
         # Get file information
         file_name = os.path.basename(file_path)
         file_ext = os.path.splitext(file_path)[1].lower()
         file_size = os.path.getsize(file_path)
         file_size_formatted = format_file_size(file_size)
 
+        # Sanitize file name
+        safe_file_name = re.sub(r'[<>:"/\\|?*]', '_', file_name)
+
         # Determine file type and create appropriate message
         file_type, content = extract_file_content(file_path, file_ext)
 
         # Create a message that includes metadata about the attachment
-        message = f"I'm sharing a file: **{file_name}** ({file_type}, {file_size_formatted})\n\n"
+        message = f"I'm sharing a file: **{safe_file_name}** ({file_type}, {file_size_formatted})\n\n"
 
         if file_type == "image":
-            # For images, we'll use the multimodal API format
-            with open(file_path, 'rb', encoding='utf-8') as img_file:
-                base64_image = base64.b64encode(img_file.read()).decode('utf-8')
+            # For images, validate and process safely
+            if file_size > 5 * 1024 * 1024:  # 5MB limit for images
+                return False, "Image file too large (max 5MB)"
+            
+            try:
+                with open(file_path, 'rb') as img_file:
+                    image_data = img_file.read()
+                    # Basic image validation (check for image headers)
+                    if not (image_data.startswith(b'\xff\xd8') or  # JPEG
+                           image_data.startswith(b'\x89PNG') or  # PNG
+                           image_data.startswith(b'GIF8') or     # GIF
+                           image_data.startswith(b'RIFF')):     # WebP
+                        return False, "Invalid or corrupted image file"
+                    
+                    base64_image = base64.b64encode(image_data).decode('utf-8')
 
-            # Add to messages with proper format for multimodal models
-            conversation_history.append({
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": message},
-                    {"type": "image_url", "image_url": {"url": f"data:image/{file_ext[1:]};base64,{base64_image}"}}
-                ]
-            })
-            return True, f"Image '{file_name}' attached successfully."
+                # Add to messages with proper format for multimodal models
+                conversation_history.append({
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": message},
+                        {"type": "image_url", "image_url": {"url": f"data:image/{file_ext[1:]};base64,{base64_image}"}}
+                    ]
+                })
+                return True, f"Image '{safe_file_name}' attached successfully."
+            except Exception as e:
+                return False, f"Error processing image: {str(e)}"
         else:
             # For other file types, add content to the message
             message += content
             conversation_history.append({"role": "user", "content": message})
-            return True, f"File '{file_name}' attached successfully as {file_type}."
+            return True, f"File '{safe_file_name}' attached successfully as {file_type}."
 
     except Exception as e:
+        console.print(f"[red]Attachment processing error: {str(e)}[/red]")
         return False, f"Error processing attachment: {str(e)}"
 
 def extract_file_content(file_path, file_ext):
@@ -740,36 +932,6 @@ def extract_file_content(file_path, file_ext):
         except:
             return "binary", "[Binary content not displayed in chat]"
 
-def execute_code(code_block, language):
-    """Execute a code block and return the result"""
-    if language not in ['python']:
-        return False, f"Code execution not supported for {language}"
-
-    try:
-        # Create a temporary file
-        with tempfile.NamedTemporaryFile(suffix=f'.{language}', delete=False) as temp:
-            temp_name = temp.name
-            temp.write(code_block.encode('utf-8'))
-
-        # Execute the code
-        if language == 'python':
-            result = subprocess.run(
-                [sys.executable, temp_name],
-                capture_output=True,
-                text=True,
-                timeout=10  # 10 second timeout for safety
-            )
-
-            # Clean up
-            os.unlink(temp_name)
-
-            if result.returncode == 0:
-                return True, f"Code executed successfully:\n\n```\n{result.stdout}\n```"
-            else:
-                return False, f"Code execution failed:\n\n```\n{result.stderr}\n```"
-    except Exception as e:
-        return False, f"Error executing code: {str(e)}"
-
 def apply_theme(theme_name):
     """Apply a color theme to the console"""
     themes = {
@@ -808,63 +970,6 @@ def apply_theme(theme_name):
     }
 
     return themes.get(theme_name, themes['default'])
-
-class Plugin:
-    """Base class for plugins"""
-    def __init__(self, name, description):
-        self.name = name
-        self.description = description
-
-    def on_load(self):
-        """Called when the plugin is loaded"""
-        pass
-
-    def on_message(self, message, role):
-        """Called when a message is sent or received"""
-        return message
-
-    def on_command(self, command, args):
-        """Called when a command is executed"""
-        return False, "Command not handled by plugin"
-
-    def get_commands(self):
-        """Return a list of commands this plugin provides"""
-        return []
-
-def load_plugins():
-    """Load plugins from the plugins directory"""
-    plugins = []
-    plugins_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "plugins")
-
-    if not os.path.exists(plugins_dir):
-        os.makedirs(plugins_dir, exist_ok=True)
-        return plugins
-
-    for filename in os.listdir(plugins_dir):
-        if filename.endswith(".py") and not filename.startswith("_"):
-            try:
-                module_name = filename[:-3]
-                spec = importlib.util.spec_from_file_location(
-                    module_name,
-                    os.path.join(plugins_dir, filename)
-                )
-                module = importlib.util.module_from_spec(spec)
-                spec.loader.exec_module(module)
-
-                # Look for Plugin subclasses in the module
-                for attr_name in dir(module):
-                    attr = getattr(module, attr_name)
-                    if (isinstance(attr, type) and
-                        issubclass(attr, Plugin) and
-                        attr is not Plugin):
-                        plugin = attr()
-                        plugin.on_load()
-                        plugins.append(plugin)
-                        console.print(f"[green]Loaded plugin: {plugin.name}[/green]")
-            except Exception as e:
-                console.print(f"[red]Error loading plugin {filename}: {str(e)}[/red]")
-
-    return plugins
 
 def optimize_streaming():
     """Configure optimized streaming for better performance"""
@@ -955,16 +1060,8 @@ def model_supports_thinking(model_id):
         console.print("[yellow]Enabling thinking mode by default. If you notice issues with model responses, you can disable it with /thinking-mode[/yellow]")
         return True
 
-def chat_with_model(config, conversation_history=None, plugins=None):
-    """ Main chat loop with model interaction and plugin support """
-    if plugins is None:
-        plugins = []
-
-    # Add plugin commands to help
-    plugin_commands = []
-    for plugin in plugins:
-        plugin_commands.extend(plugin.get_commands())
-
+def chat_with_model(config, conversation_history=None):
+    """ Main chat loop with model interaction """
     if conversation_history is None:
         # Use user's thinking mode preference instead of model detection
         if config['thinking_mode']:
@@ -985,10 +1082,6 @@ def chat_with_model(config, conversation_history=None, plugins=None):
         conversation_history = [
             {"role": "system", "content": thinking_instruction}
         ]
-
-        # Store thinking preference in conversation history for stream_response to use
-        conversation_history.append({"role": "system", "name": "config", "content":
-                                    f"thinking_mode: {config['thinking_mode']}"})
 
     headers = {
         "Authorization": f"Bearer {config['api_key']}",
@@ -1040,7 +1133,22 @@ def chat_with_model(config, conversation_history=None, plugins=None):
             user_input = Prompt.ask("\n[bold blue]You[/bold blue]")
 
             # Handle special commands
-            if user_input.startswith('/'):
+            # Check if input starts with a command OR contains /upload or /attach
+            if user_input.startswith('/') or '/upload' in user_input or '/attach' in user_input:
+                # If it contains upload/attach but doesn't start with /, extract the command
+                if not user_input.startswith('/') and ('/upload' in user_input or '/attach' in user_input):
+                    # Extract the upload/attach command and process it
+                    if '/upload' in user_input:
+                        # Find the /upload command and everything after it
+                        upload_index = user_input.find('/upload')
+                        command_part = user_input[upload_index:]
+                        user_input = command_part  # Replace user_input with just the command part
+                    elif '/attach' in user_input:
+                        # Find the /attach command and everything after it
+                        attach_index = user_input.find('/attach')
+                        command_part = user_input[attach_index:]
+                        user_input = command_part  # Replace user_input with just the command part
+                
                 command = user_input.lower()
 
                 if command == '/exit' or command == '/quit':
@@ -1066,7 +1174,7 @@ def chat_with_model(config, conversation_history=None, plugins=None):
                         "/update - Check for updates\n"
                         "/thinking - Show last AI thinking process\n"
                         "/thinking-mode - Toggle thinking mode on/off\n"
-                        "/attach or /upload - Share a file with the AI",
+                        "/attach or /upload <filepath> - Share a file with the AI (can be used anywhere in your message)",
                         title="Available Commands"
                     ))
                     continue
@@ -1253,14 +1361,24 @@ def chat_with_model(config, conversation_history=None, plugins=None):
                     # Extract file path from command
                     parts = user_input.split(' ', 1)
                     if len(parts) > 1:
-                        file_path = parts[1]
+                        file_path = parts[1].strip()  # Remove any extra whitespace
                     else:
                         console.print("[yellow]Please specify a file to attach.[/yellow]")
+                        console.print("[dim]Usage: /upload <filepath> or /attach <filepath>[/dim]")
+                        console.print("[dim]Example: /upload C:\\path\\to\\file.txt[/dim]")
                         file_path = Prompt.ask("Enter the path to the file you want to attach")
+
+                    # Handle quoted paths (remove quotes if present)
+                    if file_path.startswith('"') and file_path.endswith('"'):
+                        file_path = file_path[1:-1]
+                    elif file_path.startswith("'") and file_path.endswith("'"):
+                        file_path = file_path[1:-1]
 
                     # Check if file exists
                     if not os.path.exists(file_path):
                         console.print(f"[red]File not found: {file_path}[/red]")
+                        console.print("[dim]Make sure the file path is correct and the file exists.[/dim]")
+                        console.print("[dim]Tip: You can drag and drop the file into the terminal to get its path.[/dim]")
                         continue
 
                     # Show attachment preview
@@ -1283,6 +1401,7 @@ def chat_with_model(config, conversation_history=None, plugins=None):
                         continue
 
                     # Process the attachment
+                    console.print(f"[dim]Processing file: {file_path}[/dim]")
                     success, message = handle_attachment(file_path, conversation_history)
                     console.print(f"[{'green' if success else 'red'}]{message}[/{'green' if success else 'red'}]")
 
@@ -1300,7 +1419,16 @@ def chat_with_model(config, conversation_history=None, plugins=None):
                                     # For text messages
                                     conversation_history[-1]["content"] += f"\n\n{comment}"
 
-                        console.print("[yellow]Attachment added to conversation. Send a message or press Enter to get AI response.[/yellow]")
+                        console.print("[yellow]Attachment added to conversation. The file content is now available to the AI. Send a message or press Enter to get AI response.[/yellow]")
+                        
+                        # Also show a brief preview of what was attached
+                        if conversation_history and conversation_history[-1]["role"] == "user":
+                            content = conversation_history[-1]["content"]
+                            if isinstance(content, str) and len(content) > 100:
+                                preview = content[:100] + "..."
+                                console.print(f"[dim]Content preview: {preview}[/dim]")
+                            elif isinstance(content, list):
+                                console.print(f"[dim]Multimodal content attached (image + text)[/dim]")
                     continue
 
                 elif command == '/about':
@@ -1327,16 +1455,7 @@ def chat_with_model(config, conversation_history=None, plugins=None):
                     config['thinking_mode'] = not config['thinking_mode']
                     save_config(config)
 
-                    # Update conversation history with new setting
-                    # First, remove any existing thinking mode settings
-                    conversation_history = [msg for msg in conversation_history
-                                            if not (msg.get('name') == 'config' and 'thinking_mode' in msg.get('content', ''))]
-
-                    # Add new setting
-                    conversation_history.append({"role": "system", "name": "config",
-                                                "content": f"thinking_mode: {config['thinking_mode']}"})
-
-                    # Also update the system prompt for future messages
+                    # Update the system prompt for future messages
                     if len(conversation_history) > 0 and conversation_history[0]['role'] == 'system':
                         original_instructions = config['system_instructions']
                         if config['thinking_mode']:
@@ -1380,26 +1499,6 @@ def chat_with_model(config, conversation_history=None, plugins=None):
                     console.print("[yellow]Unknown command. Type /help for available commands.[/yellow]")
                     continue
 
-            # Process plugin commands
-            command_handled = False
-            command_parts = user_input[1:].split(' ', 1)
-            command = command_parts[0]
-            args = command_parts[1] if len(command_parts) > 1 else ""
-
-            for plugin in plugins:
-                success, message = plugin.on_command(command, args)
-                if success:
-                    console.print(message)
-                    command_handled = True
-                    break
-
-            if command_handled:
-                continue
-
-            # Process message through plugins
-            for plugin in plugins:
-                user_input = plugin.on_message(user_input, "user")
-
             # Count tokens in user input
             input_tokens = count_tokens(user_input)
 
@@ -1411,10 +1510,36 @@ def chat_with_model(config, conversation_history=None, plugins=None):
             if trimmed_count > 0:
                 console.print(f"[yellow]Note: Removed {trimmed_count} earlier messages to stay within the context window.[/yellow]")
 
+            # Clean conversation history for API - remove any messages with invalid fields
+            clean_conversation = []
+            for msg in conversation_history:
+                clean_msg = {
+                    "role": msg["role"],
+                    "content": msg["content"]
+                }
+                # Handle models that don't support system messages (like Gemma)
+                if clean_msg["role"] == "system":
+                    # Check if this is a Gemma model that doesn't support system messages
+                    if "gemma" in config['model'].lower():
+                        # Convert system message to user message with instructions
+                        if clean_msg["content"] and clean_msg["content"].strip():
+                            clean_msg["role"] = "user"
+                            clean_msg["content"] = f"Please follow these instructions: {clean_msg['content']}"
+                        else:
+                            # Skip empty system messages
+                            continue
+                    else:
+                        # Keep system message for models that support it
+                        pass
+                
+                # Only include valid roles for OpenRouter API
+                if clean_msg["role"] in ["system", "user", "assistant"]:
+                    clean_conversation.append(clean_msg)
+
             # Update the API call to use streaming
             data = {
                 "model": config['model'],
-                "messages": conversation_history,
+                "messages": clean_conversation,
                 "temperature": config['temperature'],
                 "stream": True,
             }
@@ -1607,8 +1732,7 @@ def main():
 
     # Start chat with optimized streaming settings
     streaming_config = optimize_streaming()
-    plugins = load_plugins()
-    chat_with_model(config, conversation_history, plugins)
+    chat_with_model(config, conversation_history)
 
 
 if __name__ == "__main__":
@@ -1694,7 +1818,7 @@ def multimodal_support(file_path, conversation_history):
     # Handle different file types
     if file_ext in ['.png', '.jpg', '.jpeg', '.gif', '.webp']:
         # Encode image to base64
-        with open(file_path, 'rb', encoding="utf-8") as img_file:
+        with open(file_path, 'rb') as img_file:
             base64_image = base64.b64encode(img_file.read()).decode('utf-8')
 
         # Add to messages with proper format for multimodal models
@@ -1959,7 +2083,9 @@ def export_pdf(conversation_history, include_system=False):
     """Export conversation to PDF format"""
     try:
         # Check if reportlab is installed
-        if importlib.util.find_spec("reportlab") is None:
+        try:
+            import reportlab
+        except ImportError:
             console.print("[yellow]ReportLab package not found. Installing...[/yellow]")
             subprocess.check_call([sys.executable, "-m", "pip", "install", "reportlab"])
 
@@ -2002,8 +2128,3 @@ def export_pdf(conversation_history, include_system=False):
         # Fallback to markdown if PDF creation fails
         return export_markdown(conversation_history, include_system)
 
-# 1. Add a new function to clear the terminal screen
-def clear_terminal():
-    """Clear the terminal screen"""
-    # Use a cross-platform approach for clearing the terminal
-    print("\x1b[2J\x1b[H")
