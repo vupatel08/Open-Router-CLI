@@ -1520,12 +1520,8 @@ def chat_with_model(config, conversation_history=None):
             # Add user message to conversation history
             conversation_history.append({"role": "user", "content": user_input})
             
-            # Calculate total tokens in conversation
-            total_conversation_tokens = sum(count_tokens(msg["content"]) for msg in conversation_history)
-            
             # Get model max tokens
             model_info = get_model_info(config['model'])
-            max_tokens = 240000  # Default fallback
             if model_info and 'context_length' in model_info:
                 max_tokens = model_info['context_length']
 
@@ -1602,7 +1598,9 @@ def chat_with_model(config, conversation_history=None):
                         formatted_time = format_time_delta(response_time)
                         console.print(f"[dim]⏱️ Response time: {formatted_time}[/dim]")
                         console.print(f"[dim]Tokens: {input_tokens} (input) + {response_tokens} (response) = {input_tokens + response_tokens} (total)[/dim]")
-                        console.print(f"[dim]Total Tokens: {total_tokens_used:,} / {max_tokens:,}[/dim]")
+
+                        if max_tokens:
+                            console.print(f"[dim]Total Tokens: {total_tokens_used:,} / {max_tokens:,}[/dim]")
                     else:
                         # If we didn't get content but status was 200, something went wrong with streaming
                         console.print("[red]Error: Received empty response from API[/red]")
