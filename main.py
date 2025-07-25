@@ -12,7 +12,6 @@ import base64
 import webbrowser
 import urllib.request
 from collections import Counter
-import hashlib
 from cryptography.fernet import Fernet
 import getpass
 
@@ -31,6 +30,16 @@ try:
 except ImportError:
     HAS_FZF=False
 
+try:
+    from prompt_toolkit import prompt
+    from prompt_toolkit.completion import WordCompleter, Completion, Completer
+    from prompt_toolkit.formatted_text import HTML
+    from prompt_toolkit.styles import Style
+    from prompt_toolkit.shortcuts import CompleteStyle
+    HAS_PROMPT_TOOLKIT = True
+except ImportError:
+    HAS_PROMPT_TOOLKIT = False
+
 # Initialize colorama for cross-platform colored terminal output
 colorama.init()
 
@@ -39,7 +48,7 @@ console = Console()
 
 # Constants for the application
 APP_NAME = "OrChat"
-APP_VERSION = "1.2.1"
+APP_VERSION = "1.2.5"
 REPO_URL = "https://github.com/oop7/OrChat"
 API_URL = "https://api.github.com/repos/oop7/OrChat/releases/latest"
 
@@ -57,6 +66,83 @@ def clear_terminal():
     """Clear the terminal screen"""
     # Use a cross-platform approach for clearing the terminal
     print("\x1b[2J\x1b[H")
+
+class OrChatCompleter(Completer):
+    """Custom completer for OrChat commands with descriptions"""
+    
+    def __init__(self):
+        # Define all available commands with their descriptions
+        self.commands = {
+            'clear': 'Clear the screen and conversation history',
+            'chat': 'Manage conversation history. Usage: /chat <list|save|resume> <tag>',
+            'compress': 'Compresses the context by replacing it with a summary.',
+            'exit': 'Exit the chat',
+            'quit': 'Exit the chat', 
+            'new': 'Start a new conversation',
+            'cls': 'Clear terminal screen',
+            'clear-screen': 'Clear terminal screen',
+            'save': 'Save conversation to file',
+            'settings': 'Adjust model settings',
+            'tokens': 'Show token usage statistics',
+            'model': 'Change the AI model',
+            'temperature': 'Adjust temperature (0.0-2.0)',
+            'system': 'View or change system instructions',
+            'speed': 'Show response time statistics',
+            'theme': 'Change the color theme',
+            'about': 'Show information about OrChat',
+            'update': 'Check for updates',
+            'thinking': 'Show last AI thinking process',
+            'thinking-mode': 'Toggle thinking mode on/off',
+            'attach': 'Share a file with the AI',
+            'upload': 'Share a file with the AI',
+            'help': 'Show available commands'
+        }
+        
+    def get_completions(self, document, complete_event):
+        """Generate completions for the current input"""
+        text = document.text_before_cursor
+        
+        # Only provide completions if text starts with '/'
+        if text.startswith('/'):
+            # Get the command part without the '/'
+            command_part = text[1:]
+            
+            # Find matching commands
+            for cmd, description in self.commands.items():
+                if cmd.startswith(command_part.lower()):
+                    yield Completion(
+                        cmd,
+                        start_position=-len(command_part),
+                        display_meta=description
+                    )
+
+def create_command_completer():
+    """Create a command completer for OrChat"""
+    if not HAS_PROMPT_TOOLKIT:
+        return None
+    
+    return OrChatCompleter()
+
+def get_user_input_with_completion():
+    """Get user input with command auto-completion"""
+    if not HAS_PROMPT_TOOLKIT:
+        return input("> ")
+    
+    try:
+        completer = create_command_completer()
+        
+        result = prompt(
+            "> ",
+            completer=completer,
+            complete_while_typing=True
+        )
+        return result
+    except (KeyboardInterrupt, EOFError):
+        raise
+    except Exception as e:
+        # Fallback to regular input if anything goes wrong
+        print(f"[Auto-completion error: {e}]")
+        return input("> ")
 
 def generate_key():
     """Generate a key for encryption"""
@@ -257,7 +343,7 @@ def get_available_models():
 def get_model_info(model_id):
     """Get model information of all models"""
     models = get_available_models()
-
+    
     try:
         for model in models:
             if model["id"] == model_id:
@@ -268,6 +354,225 @@ def get_model_info(model_id):
     except Exception as e:
         console.print(f"[red] Failed to fetch model token count: {str(e)}[/red]")
         return None
+
+def get_enhanced_models():
+    """Fetch enhanced model data from OpenRouter frontend API with detailed capabilities"""
+    try:
+        config = load_config()
+        headers = {
+            "Authorization": f"Bearer {config['api_key']}",
+            "Content-Type": "application/json",
+        }
+
+        with console.status("[bold green]Fetching enhanced model data..."):
+            response = requests.get("https://openrouter.ai/api/frontend/models", headers=headers)
+
+        if response.status_code == 200:
+            models_data = response.json()
+            return models_data.get("data", [])
+        else:
+            console.print(f"[red]Error fetching enhanced models: {response.status_code}[/red]")
+            # Fallback to standard models API
+            return get_available_models()
+    except Exception as e:
+        console.print(f"[red]Error fetching enhanced models: {str(e)}[/red]")
+        # Fallback to standard models API
+        return get_available_models()
+
+def get_models_by_capability(capability_filter="all"):
+    """Get models filtered by specific capabilities using the enhanced frontend API"""
+    try:
+        enhanced_models = get_enhanced_models()
+        
+        if capability_filter == "all":
+            return enhanced_models
+        
+        filtered_models = []
+        
+        for model in enhanced_models:
+            # Skip None models
+            if model is None:
+                continue
+                
+            # Extract capability information from the endpoint data
+            endpoint = model.get('endpoint', {})
+            if endpoint is None:
+                continue
+            
+            if capability_filter == "reasoning":
+                # Check if model supports reasoning/thinking
+                supports_reasoning = endpoint.get('supports_reasoning', False)
+                reasoning_config = model.get('reasoning_config') or endpoint.get('reasoning_config')
+                if supports_reasoning or reasoning_config:
+                    filtered_models.append(model)
+                    
+            elif capability_filter == "multipart":
+                # Check if model supports multipart (images/files)
+                supports_multipart = endpoint.get('supports_multipart', False)
+                input_modalities = model.get('input_modalities', [])
+                if supports_multipart or ('image' in input_modalities):
+                    filtered_models.append(model)
+                    
+            elif capability_filter == "tools":
+                # Check if model supports tool parameters
+                supports_tools = endpoint.get('supports_tool_parameters', False)
+                supported_params = endpoint.get('supported_parameters', [])
+                if supported_params is None:
+                    supported_params = []
+                if supports_tools or 'tools' in supported_params:
+                    filtered_models.append(model)
+                    
+            elif capability_filter == "free":
+                # Check if model is free
+                is_free = endpoint.get('is_free', False)
+                pricing = endpoint.get('pricing', {})
+                if pricing is None:
+                    pricing = {}
+                prompt_price = float(pricing.get('prompt', '0'))
+                if is_free or prompt_price == 0:
+                    filtered_models.append(model)
+                    
+        return filtered_models
+        
+    except Exception as e:
+        console.print(f"[red]Error filtering models by capability: {str(e)}[/red]")
+        # Fallback to standard models
+        return get_available_models()
+
+def get_models_by_group():
+    """Get models organized by their groups using enhanced API"""
+    try:
+        enhanced_models = get_enhanced_models()
+        groups = {}
+        
+        for model in enhanced_models:
+            # Skip None models
+            if model is None:
+                continue
+                
+            group = model.get('group', 'Other')
+            if group not in groups:
+                groups[group] = []
+            groups[group].append(model)
+        
+        return groups
+        
+    except Exception as e:
+        console.print(f"[red]Error grouping models: {str(e)}[/red]")
+        return {}
+
+def get_models_by_provider():
+    """Get models organized by their providers using enhanced API"""
+    try:
+        enhanced_models = get_enhanced_models()
+        providers = {}
+        
+        for model in enhanced_models:
+            # Skip None models
+            if model is None:
+                continue
+                
+            endpoint = model.get('endpoint', {})
+            if endpoint is None:
+                continue
+                
+            provider = endpoint.get('provider_name', 'Unknown')
+            if provider not in providers:
+                providers[provider] = []
+            providers[provider].append(model)
+        
+        return providers
+        
+    except Exception as e:
+        console.print(f"[red]Error organizing models by provider: {str(e)}[/red]")
+        return {}
+
+def get_models_by_categories(categories):
+    """Fetch models by categories from OpenRouter API using the find endpoint"""
+    try:
+        config = load_config()
+        headers = {
+            "Authorization": f"Bearer {config['api_key']}",
+            "Content-Type": "application/json",
+        }
+
+        # Convert categories list to comma-separated string for the API
+        categories_param = ",".join(categories) if isinstance(categories, list) else categories
+        
+        with console.status(f"[bold green]Fetching models for categories: {categories_param}..."):
+            response = requests.get(
+                f"https://openrouter.ai/api/frontend/models/find?categories={categories_param}",
+                headers=headers
+            )
+
+        if response.status_code == 200:
+            models_data = response.json()
+            # Extract model slugs from the response
+            if "data" in models_data and "models" in models_data["data"]:
+                return [model["slug"] for model in models_data["data"]["models"]]
+            return []
+        else:
+            console.print(f"[red]Error fetching models by categories: {response.status_code}[/red]")
+            return []
+    except Exception as e:
+        console.print(f"[red]Error fetching models by categories: {str(e)}[/red]")
+        return []
+
+def get_dynamic_task_categories():
+    """Get dynamic task categories by fetching models from specific OpenRouter categories"""
+    # Map our task types to OpenRouter categories and fallback model patterns
+    category_mapping = {
+        "creative": {
+            "openrouter_categories": ["Programming", "Technology"],  # OpenRouter categories that might contain creative models
+            "fallback_patterns": ["claude-3", "gpt-4", "llama", "gemini"]  # Fallback to original patterns
+        },
+        "coding": {
+            "openrouter_categories": ["Programming", "Technology"],
+            "fallback_patterns": ["claude-3-opus", "gpt-4", "deepseek-coder", "qwen-coder", "devstral", "codestral"]
+        },
+        "analysis": {
+            "openrouter_categories": ["Science", "Academia"],
+            "fallback_patterns": ["claude-3-opus", "gpt-4", "mistral", "qwen"]
+        },
+        "chat": {
+            "openrouter_categories": ["Programming"],  # General chat category
+            "fallback_patterns": ["claude-3-haiku", "gpt-3.5", "gemini-pro", "llama"]
+        }
+    }
+
+    dynamic_categories = {}
+    
+    for task_type, config in category_mapping.items():
+        try:
+            # Try to get models from OpenRouter categories first
+            category_models = get_models_by_categories(config["openrouter_categories"])
+            
+            if category_models:
+                # Filter to get relevant models based on fallback patterns for better accuracy
+                filtered_models = []
+                for model_slug in category_models:
+                    if any(pattern in model_slug.lower() for pattern in config["fallback_patterns"]):
+                        filtered_models.append(model_slug)
+                
+                # If we found filtered models, use them, otherwise use all category models
+                dynamic_categories[task_type] = filtered_models if filtered_models else category_models[:10]  # Limit to 10 for performance
+            else:
+                # Fallback to pattern-based filtering with all available models
+                all_models = get_available_models()
+                fallback_models = []
+                for model in all_models:
+                    model_id = model.get('id', '').lower()
+                    if any(pattern in model_id for pattern in config["fallback_patterns"]):
+                        fallback_models.append(model['id'])
+                
+                dynamic_categories[task_type] = fallback_models[:10]  # Limit to 10 for performance
+                        
+        except Exception as e:
+            console.print(f"[yellow]Warning: Failed to get dynamic categories for {task_type}: {str(e)}[/yellow]")
+            # Use fallback patterns in case of error
+            dynamic_categories[task_type] = config["fallback_patterns"]
+    
+    return dynamic_categories
 
 def select_model(config):
     """Simplified model selection interface"""
@@ -283,9 +588,12 @@ def select_model(config):
     console.print("[bold]1[/bold] - View all available models")
     console.print("[bold]2[/bold] - Show free models only")
     console.print("[bold]3[/bold] - Enter model name directly")
+    console.print("[bold]4[/bold] - Browse models by task category")
+    console.print("[bold]5[/bold] - Browse by capabilities (enhanced)")
+    console.print("[bold]6[/bold] - Browse by model groups")
     console.print("[bold]q[/bold] - Cancel selection")
 
-    choice = Prompt.ask("Select an option", choices=["1", "2", "3", "q"], default="1")
+    choice = Prompt.ask("Select an option", choices=["1", "2", "3", "4", "5", "6", "q"], default="1")
 
     if choice == "q":
         return None
@@ -298,21 +606,21 @@ def select_model(config):
         # Validate the model name
         model_exists = any(model["id"] == model_name for model in all_models)
         if model_exists:
-            # Ask about thinking mode support
+            # Auto-detect thinking mode support first
             try:
-                prompt_for_thinking_mode(config)
+                auto_detect_thinking_mode(config, model_name)
             except Exception as e:
-                console.print(f"[yellow]Error setting thinking mode: {str(e)}. Using default settings.[/yellow]")
+                console.print(f"[yellow]Error auto-detecting thinking mode: {str(e)}. Using default settings.[/yellow]")
             return model_name
 
         console.print("[yellow]Warning: Model not found in available models. Using anyway.[/yellow]")
         confirm = Prompt.ask("Continue with this model name? (y/n)", default="y")
         if confirm.lower() == "y":
-            # Ask about thinking mode support
+            # Auto-detect thinking mode support first
             try:
-                prompt_for_thinking_mode(config)
+                auto_detect_thinking_mode(config, model_name)
             except Exception as e:
-                console.print(f"[yellow]Error setting thinking mode: {str(e)}. Using default settings.[/yellow]")
+                console.print(f"[yellow]Error auto-detecting thinking mode: {str(e)}. Using default settings.[/yellow]")
             return model_name
         return select_model(config)  # Start over
 
@@ -321,17 +629,21 @@ def select_model(config):
         console.print("[bold green]All Available Models:[/bold green]")
 
         if HAS_FZF:
-            fzf = FzfPrompt()
-            model_choice = fzf.prompt([ model['id']  for  model in all_models ])
-            if not model_choice:
-                console.print("[red]No model selected. Exiting...[/red]")
-                return select_model(config)
-            else:
-                try:
-                    prompt_for_thinking_mode(config)
-                except Exception as e:
-                    console.print(f"[yellow]Error setting thinking mode: {str(e)}. Using default settings.[/yellow]")
-                return model_choice[0]
+            try:
+                fzf = FzfPrompt()
+                model_choice = fzf.prompt([ model['id']  for  model in all_models ])
+                if not model_choice:
+                    console.print("[red]No model selected. Exiting...[/red]")
+                    return select_model(config)
+                else:
+                    try:
+                        auto_detect_thinking_mode(config, model_choice[0])
+                    except Exception as e:
+                        console.print(f"[yellow]Error auto-detecting thinking mode: {str(e)}. Using default settings.[/yellow]")
+                    return model_choice[0]
+            except Exception as e:
+                console.print(f"[yellow]FZF not available: {str(e)}. Falling back to numbered list.[/yellow]")
+                # Fall through to the numbered list below
 
         with console.pager(styles=True):
             for i, model in enumerate(all_models, 1):
@@ -350,11 +662,11 @@ def select_model(config):
             index = int(model_choice) - 1
             if 0 <= index < len(all_models):
                 selected_model = all_models[index]['id']
-                # Ask about thinking mode support
+                # Auto-detect thinking mode support
                 try:
-                    prompt_for_thinking_mode(config)
+                    auto_detect_thinking_mode(config, selected_model)
                 except Exception as e:
-                    console.print(f"[yellow]Error setting thinking mode: {str(e)}. Using default settings.[/yellow]")
+                    console.print(f"[yellow]Error auto-detecting thinking mode: {str(e)}. Using default settings.[/yellow]")
                 return selected_model
             else:
                 console.print("[red]Invalid selection[/red]")
@@ -385,11 +697,11 @@ def select_model(config):
             index = int(model_choice) - 1
             if 0 <= index < len(free_models):
                 selected_model = free_models[index]['id']
-                # Ask about thinking mode support
+                # Auto-detect thinking mode support
                 try:
-                    prompt_for_thinking_mode(config)
+                    auto_detect_thinking_mode(config, selected_model)
                 except Exception as e:
-                    console.print(f"[yellow]Error setting thinking mode: {str(e)}. Using default settings.[/yellow]")
+                    console.print(f"[yellow]Error auto-detecting thinking mode: {str(e)}. Using default settings.[/yellow]")
                 return selected_model
             console.print("[red]Invalid selection[/red]")
             Prompt.ask("Press Enter to continue")
@@ -399,32 +711,495 @@ def select_model(config):
             Prompt.ask("Press Enter to continue")
             return select_model(config)
 
-def prompt_for_thinking_mode(config):
-    """Ask if the selected model supports thinking mode"""
-    console.print("[yellow]Some models support showing AI reasoning with <thinking></thinking> tags.[/yellow]")
-    thinking_support = Prompt.ask(
-        "Do you know if this model supports thinking mode?",
-        choices=["y", "n", "unknown"],
-        default="n"  # Changed from unknown to n
-    )
+    elif choice == "4":
+        # Browse models by task category using dynamic categories
+        console.print("[bold green]Browse Models by Task Category:[/bold green]")
+        console.print("[dim]Using dynamic categories from OpenRouter API[/dim]\n")
+        
+        # Available task categories
+        task_categories = ["creative", "coding", "analysis", "chat"]
+        
+        console.print("[bold magenta]Available Categories:[/bold magenta]")
+        for i, category in enumerate(task_categories, 1):
+            console.print(f"[bold]{i}.[/bold] {category.title()}")
+        console.print("[bold]b[/bold] - Go back to main menu")
+        
+        category_choice = Prompt.ask("Select a category", choices=["1", "2", "3", "4", "b"], default="1")
+        
+        if category_choice.lower() == 'b':
+            return select_model(config)
+        
+        try:
+            category_index = int(category_choice) - 1
+            if 0 <= category_index < len(task_categories):
+                selected_category = task_categories[category_index]
+                
+                # Get models for the selected category using dynamic categories
+                console.print(f"[cyan]Loading {selected_category} models...[/cyan]")
+                try:
+                    dynamic_categories = get_dynamic_task_categories()
+                    category_models = dynamic_categories.get(selected_category, [])
+                    
+                    if not category_models:
+                        console.print(f"[yellow]No models found for {selected_category} category.[/yellow]")
+                        Prompt.ask("Press Enter to continue")
+                        return select_model(config)
+                    
+                    # Get full model details for display
+                    all_models = get_available_models()
+                    detailed_models = []
+                    for model in all_models:
+                        if model['id'] in category_models:
+                            detailed_models.append(model)
+                    
+                    if not detailed_models:
+                        console.print(f"[yellow]No detailed model information found for {selected_category} category.[/yellow]")
+                        Prompt.ask("Press Enter to continue")
+                        return select_model(config)
+                    
+                    console.print(f"[bold green]{selected_category.title()} Models:[/bold green]")
+                    console.print(f"[dim]Found {len(detailed_models)} models optimized for {selected_category} tasks[/dim]\n")
+                    
+                    for i, model in enumerate(detailed_models, 1):
+                        # Highlight free models and show pricing info
+                        if model['id'].endswith(":free"):
+                            console.print(f"[bold]{i}.[/bold] {model['id']} [green](FREE)[/green]")
+                        else:
+                            # Try to show pricing if available
+                            pricing = ""
+                            if 'pricing' in model and 'prompt' in model['pricing']:
+                                try:
+                                    prompt_price = float(model['pricing']['prompt'])
+                                    if prompt_price > 0:
+                                        pricing = f" [dim](${prompt_price:.6f}/token)[/dim]"
+                                except:
+                                    pass
+                            console.print(f"[bold]{i}.[/bold] {model['id']}{pricing}")
+                    
+                    console.print(f"\n[bold]b[/bold] - Go back to category selection")
+                    
+                    model_choice = Prompt.ask("Enter model number or 'b' to go back", default="1")
+                    
+                    if model_choice.lower() == 'b':
+                        return select_model(config)
+                    
+                    try:
+                        model_index = int(model_choice) - 1
+                        if 0 <= model_index < len(detailed_models):
+                            selected_model = detailed_models[model_index]['id']
+                            console.print(f"[green]Selected {selected_model} for {selected_category} tasks[/green]")
+                            
+                            # Auto-detect thinking mode support
+                            try:
+                                auto_detect_thinking_mode(config, selected_model)
+                            except Exception as e:
+                                console.print(f"[yellow]Error auto-detecting thinking mode: {str(e)}. Using default settings.[/yellow]")
+                            return selected_model
+                        else:
+                            console.print("[red]Invalid selection[/red]")
+                            Prompt.ask("Press Enter to continue")
+                            return select_model(config)
+                    except ValueError:
+                        console.print("[red]Please enter a valid number[/red]")
+                        Prompt.ask("Press Enter to continue")
+                        return select_model(config)
+                        
+                except Exception as e:
+                    console.print(f"[red]Error loading dynamic categories: {str(e)}[/red]")
+                    console.print("[yellow]Falling back to standard model selection[/yellow]")
+                    Prompt.ask("Press Enter to continue")
+                    return select_model(config)
+            else:
+                console.print("[red]Invalid category selection[/red]")
+                return select_model(config)
+        except ValueError:
+            console.print("[red]Please enter a valid number[/red]")
+            return select_model(config)
 
+    elif choice == "5":
+        # Browse models by capabilities using enhanced API
+        console.print("[bold green]Browse Models by Capabilities:[/bold green]")
+        console.print("[dim]Using enhanced OpenRouter frontend API data[/dim]\n")
+        
+        # Available capability filters
+        capabilities = [
+            ("reasoning", "Models with thinking/reasoning support"),
+            ("multipart", "Models that support images and files"),
+            ("tools", "Models with tool/function calling support"),
+            ("free", "Free models (no cost)")
+        ]
+        
+        console.print("[bold magenta]Available Capabilities:[/bold magenta]")
+        for i, (cap, desc) in enumerate(capabilities, 1):
+            console.print(f"[bold]{i}.[/bold] {desc}")
+        console.print("[bold]b[/bold] - Go back to main menu")
+        
+        cap_choice = Prompt.ask("Select a capability", choices=["1", "2", "3", "4", "b"], default="1")
+        
+        if cap_choice.lower() == 'b':
+            return select_model(config)
+        
+        try:
+            cap_index = int(cap_choice) - 1
+            if 0 <= cap_index < len(capabilities):
+                selected_capability, description = capabilities[cap_index]
+                
+                # Get models with the selected capability
+                console.print(f"[cyan]Loading models with {description.lower()}...[/cyan]")
+                try:
+                    capability_models = get_models_by_capability(selected_capability)
+                    
+                    if not capability_models:
+                        console.print(f"[yellow]No models found with {description.lower()}.[/yellow]")
+                        Prompt.ask("Press Enter to continue")
+                        return select_model(config)
+                    
+                    console.print(f"[bold green]{description}:[/bold green]")
+                    console.print(f"[dim]Found {len(capability_models)} models[/dim]\n")
+                    
+                    for i, model in enumerate(capability_models, 1):
+                        # Skip None models in display
+                        if model is None:
+                            continue
+                            
+                        # Show enhanced model information
+                        endpoint = model.get('endpoint', {}) if model else {}
+                        # Try multiple fields for model name
+                        model_name = model.get('slug') or model.get('name') or model.get('short_name', 'Unknown') if model else 'Unknown'
+                        
+                        # Show capability-specific information
+                        extra_info = ""
+                        if selected_capability == "reasoning":
+                            reasoning_config = model.get('reasoning_config') or endpoint.get('reasoning_config') if model and endpoint else None
+                            if reasoning_config:
+                                start_token = reasoning_config.get('start_token', '<thinking>')
+                                end_token = reasoning_config.get('end_token', '</thinking>')
+                                extra_info = f" [dim]({start_token}...{end_token})[/dim]"
+                        elif selected_capability == "multipart":
+                            input_modalities = model.get('input_modalities', []) if model else []
+                            if input_modalities:
+                                extra_info = f" [dim]({', '.join(input_modalities)})[/dim]"
+                        elif selected_capability == "tools":
+                            supported_params = endpoint.get('supported_parameters', []) if endpoint else []
+                            if supported_params is None:
+                                supported_params = []
+                            tool_params = [p for p in supported_params if 'tool' in p.lower()]
+                            if tool_params:
+                                extra_info = f" [dim]({', '.join(tool_params)})[/dim]"
+                        elif selected_capability == "free":
+                            provider = endpoint.get('provider_name', 'Unknown') if endpoint else 'Unknown'
+                            extra_info = f" [green](FREE via {provider})[/green]"
+                        
+                        console.print(f"[bold]{i}.[/bold] {model_name}{extra_info}")
+                    
+                    console.print(f"\n[bold]b[/bold] - Go back to capability selection")
+                    
+                    model_choice = Prompt.ask("Enter model number or 'b' to go back", default="1")
+                    
+                    if model_choice.lower() == 'b':
+                        return select_model(config)
+                    
+                    try:
+                        model_index = int(model_choice) - 1
+                        if 0 <= model_index < len(capability_models):
+                            selected_model_obj = capability_models[model_index]
+                            if selected_model_obj:
+                                selected_model = selected_model_obj.get('slug') or selected_model_obj.get('name') or selected_model_obj.get('short_name', 'Unknown')
+                            else:
+                                selected_model = 'Unknown'
+                            console.print(f"[green]Selected {selected_model} with {description.lower()}[/green]")
+                            
+                            # Auto-detect thinking mode support
+                            try:
+                                auto_detect_thinking_mode(config, selected_model)
+                            except Exception as e:
+                                console.print(f"[yellow]Error detecting thinking mode: {str(e)}. Using default settings.[/yellow]")
+                            return selected_model
+                        else:
+                            console.print("[red]Invalid selection[/red]")
+                            Prompt.ask("Press Enter to continue")
+                            return select_model(config)
+                    except ValueError:
+                        console.print("[red]Please enter a valid number[/red]")
+                        Prompt.ask("Press Enter to continue")
+                        return select_model(config)
+                        
+                except Exception as e:
+                    console.print(f"[red]Error loading capability models: {str(e)}[/red]")
+                    console.print("[yellow]Falling back to standard model selection[/yellow]")
+                    Prompt.ask("Press Enter to continue")
+                    return select_model(config)
+            else:
+                console.print("[red]Invalid capability selection[/red]")
+                return select_model(config)
+        except ValueError:
+            console.print("[red]Please enter a valid number[/red]")
+            return select_model(config)
+
+    elif choice == "6":
+        # Browse models by groups using enhanced API
+        console.print("[bold green]Browse Models by Groups:[/bold green]")
+        console.print("[dim]Using enhanced OpenRouter frontend API data[/dim]\n")
+        
+        try:
+            groups = get_models_by_group()
+            
+            if not groups:
+                console.print("[yellow]No model groups found.[/yellow]")
+                Prompt.ask("Press Enter to continue")
+                return select_model(config)
+            
+            # Sort groups by name and display
+            sorted_groups = sorted(groups.keys())
+            console.print("[bold magenta]Available Model Groups:[/bold magenta]")
+            for i, group in enumerate(sorted_groups, 1):
+                model_count = len(groups[group])
+                console.print(f"[bold]{i}.[/bold] {group} [dim]({model_count} models)[/dim]")
+            console.print("[bold]b[/bold] - Go back to main menu")
+            
+            group_choice = Prompt.ask("Select a group", default="1")
+            
+            if group_choice.lower() == 'b':
+                return select_model(config)
+            
+            try:
+                group_index = int(group_choice) - 1
+                if 0 <= group_index < len(sorted_groups):
+                    selected_group = sorted_groups[group_index]
+                    group_models = groups[selected_group]
+                    
+                    console.print(f"[bold green]{selected_group} Models:[/bold green]")
+                    console.print(f"[dim]Found {len(group_models)} models in this group[/dim]\n")
+                    
+                    for i, model in enumerate(group_models, 1):
+                        # Skip None models in display
+                        if model is None:
+                            continue
+                            
+                        endpoint = model.get('endpoint', {}) if model else {}
+                        model_name = model.get('slug') or model.get('name') or model.get('short_name', 'Unknown') if model else 'Unknown'
+                        provider = endpoint.get('provider_name', 'Unknown') if endpoint else 'Unknown'
+                        
+                        # Show pricing info
+                        pricing_info = ""
+                        if endpoint and endpoint.get('is_free', False):
+                            pricing_info = " [green](FREE)[/green]"
+                        elif endpoint:
+                            pricing = endpoint.get('pricing', {})
+                            if pricing:
+                                prompt_price = pricing.get('prompt', '0')
+                                try:
+                                    if float(prompt_price) > 0:
+                                        pricing_info = f" [dim](${prompt_price}/token)[/dim]"
+                                except:
+                                    pass
+                        
+                        console.print(f"[bold]{i}.[/bold] {model_name} [dim]({provider})[/dim]{pricing_info}")
+                    
+                    console.print(f"\n[bold]b[/bold] - Go back to group selection")
+                    
+                    model_choice = Prompt.ask("Enter model number or 'b' to go back", default="1")
+                    
+                    if model_choice.lower() == 'b':
+                        return select_model(config)
+                    
+                    try:
+                        model_index = int(model_choice) - 1
+                        if 0 <= model_index < len(group_models):
+                            selected_model_obj = group_models[model_index]
+                            if selected_model_obj:
+                                selected_model = selected_model_obj.get('slug') or selected_model_obj.get('name') or selected_model_obj.get('short_name', 'Unknown')
+                            else:
+                                selected_model = 'Unknown'
+                            console.print(f"[green]Selected {selected_model} from {selected_group} group[/green]")
+                            
+                            # Auto-detect thinking mode support
+                            try:
+                                auto_detect_thinking_mode(config, selected_model)
+                            except Exception as e:
+                                console.print(f"[yellow]Error detecting thinking mode: {str(e)}. Using default settings.[/yellow]")
+                            return selected_model
+                        else:
+                            console.print("[red]Invalid selection[/red]")
+                            Prompt.ask("Press Enter to continue")
+                            return select_model(config)
+                    except ValueError:
+                        console.print("[red]Please enter a valid number[/red]")
+                        Prompt.ask("Press Enter to continue")
+                        return select_model(config)
+                else:
+                    console.print("[red]Invalid group selection[/red]")
+                    return select_model(config)
+            except ValueError:
+                console.print("[red]Please enter a valid number[/red]")
+                return select_model(config)
+                
+        except Exception as e:
+            console.print(f"[red]Error loading model groups: {str(e)}[/red]")
+            console.print("[yellow]Falling back to standard model selection[/yellow]")
+            Prompt.ask("Press Enter to continue")
+            return select_model(config)
+
+def auto_detect_thinking_mode(config, selected_model):
+    """Automatically detect if the selected model supports thinking mode"""
     # Make sure the thinking_mode key exists in config
     if 'thinking_mode' not in config:
         config['thinking_mode'] = False  # Default to disabled
 
-    if thinking_support.lower() == "y":
-        config['thinking_mode'] = True
-        console.print("[green]Thinking mode enabled for this model.[/green]")
-    elif thinking_support.lower() == "n":
+    try:
+        # Get enhanced models to check if this model supports reasoning
+        enhanced_models = get_enhanced_models()
+        
+        for model in enhanced_models:
+            if model is None:
+                continue
+                
+            # Check if this is the selected model
+            model_slug = model.get('slug') or model.get('name') or model.get('short_name', '')
+            if model_slug == selected_model:
+                # Check if model supports reasoning/thinking
+                endpoint = model.get('endpoint', {})
+                supports_reasoning = endpoint.get('supports_reasoning', False) if endpoint else False
+                reasoning_config = model.get('reasoning_config') or (endpoint.get('reasoning_config') if endpoint else None)
+                
+                if supports_reasoning or reasoning_config:
+                    config['thinking_mode'] = True
+                    console.print("[green]🧠 Thinking mode automatically enabled for this reasoning model.[/green]")
+                    if reasoning_config:
+                        start_token = reasoning_config.get('start_token', '<thinking>')
+                        end_token = reasoning_config.get('end_token', '</thinking>')
+                        console.print(f"[dim]Uses reasoning tags: {start_token}...{end_token}[/dim]")
+                else:
+                    config['thinking_mode'] = False
+                    console.print("[dim]Thinking mode disabled - this model doesn't support reasoning.[/dim]")
+                return
+        
+        # If model not found in enhanced models, disable thinking mode
         config['thinking_mode'] = False
-        console.print("[yellow]Thinking mode disabled for this model.[/yellow]")
-    else:
-        # For unknown, keep the current setting
-        console.print(f"[yellow]Keeping current thinking mode setting: {'enabled' if config['thinking_mode'] else 'disabled'}[/yellow]")
-        console.print("[dim]You can toggle this setting anytime with /thinking-mode[/dim]")
+        console.print("[dim]Thinking mode disabled - unable to verify reasoning support.[/dim]")
+        
+    except Exception as e:
+        # If there's an error, keep current setting or default to disabled
+        config['thinking_mode'] = config.get('thinking_mode', False)
+        console.print(f"[yellow]Could not auto-detect thinking mode: {str(e)}[/yellow]")
+        console.print(f"[dim]Keeping current setting: {'enabled' if config['thinking_mode'] else 'disabled'}[/dim]")
 
-    # Don't save the config during model selection - just update the thinking_mode value
-    # The calling function will handle saving when all settings are complete
+def get_model_pricing_info(model_name):
+    """Get pricing information for a specific model"""
+    try:
+        enhanced_models = get_enhanced_models()
+        
+        for model in enhanced_models:
+            if model is None:
+                continue
+                
+            # Check if this is the selected model
+            model_slug = model.get('slug') or model.get('name') or model.get('short_name', '')
+            if model_slug == model_name:
+                endpoint = model.get('endpoint', {})
+                if endpoint:
+                    api_is_free = endpoint.get('is_free', False)
+                    pricing = endpoint.get('pricing', {})
+                    
+                    # Check if the model name explicitly indicates it's free
+                    is_explicitly_free = model_name and (model_name.endswith(':free') or ':free' in model_name)
+                    
+                    # Only trust is_free flag if the model name explicitly indicates it's free
+                    # This prevents cases where the API incorrectly marks paid models as free
+                    if is_explicitly_free and api_is_free:
+                        return {
+                            'is_free': True,
+                            'prompt_price': 0.0,
+                            'completion_price': 0.0,
+                            'display': 'FREE',
+                            'provider': endpoint.get('provider_name', 'Unknown')
+                        }
+                    elif pricing:
+                        prompt_price = float(pricing.get('prompt', '0'))
+                        completion_price = float(pricing.get('completion', '0'))
+                        
+                        # Check if the model name explicitly indicates it's free
+                        is_explicitly_free = model_name and (model_name.endswith(':free') or ':free' in model_name)
+                        
+                        if prompt_price == 0 and completion_price == 0:
+                            if is_explicitly_free:
+                                return {
+                                    'is_free': True,
+                                    'prompt_price': 0.0,
+                                    'completion_price': 0.0,
+                                    'display': 'FREE',
+                                    'provider': endpoint.get('provider_name', 'Unknown')
+                                }
+                            else:
+                                # Model has 0 pricing but may still require credits
+                                # Don't trust 0-pricing for non-explicit free models
+                                return {
+                                    'is_free': False,
+                                    'prompt_price': 0.0,
+                                    'completion_price': 0.0,
+                                    'display': 'Requires credits',
+                                    'provider': endpoint.get('provider_name', 'Unknown')
+                                }
+                        else:
+                            # Format prices for display
+                            if prompt_price < 0.001:
+                                prompt_display = f"${prompt_price:.6f}"
+                            else:
+                                prompt_display = f"${prompt_price:.4f}"
+                                
+                            if completion_price < 0.001:
+                                completion_display = f"${completion_price:.6f}"
+                            else:
+                                completion_display = f"${completion_price:.4f}"
+                                
+                            return {
+                                'is_free': False,
+                                'prompt_price': prompt_price,
+                                'completion_price': completion_price,
+                                'display': f"{prompt_display}/1K prompt, {completion_display}/1K completion",
+                                'provider': endpoint.get('provider_name', 'Unknown')
+                            }
+        
+        # Model not found in enhanced models - check if it's a free model by name
+        if model_name and (model_name.endswith(':free') or ':free' in model_name):
+            return {
+                'is_free': True,
+                'prompt_price': 0.0,
+                'completion_price': 0.0,
+                'display': 'FREE',
+                'provider': 'OpenRouter'
+            }
+        
+        # Model not found in enhanced models and not obviously free
+        return {
+            'is_free': False,
+            'prompt_price': 0.0,
+            'completion_price': 0.0,
+            'display': 'Pricing unknown - may require credits',
+            'provider': 'Unknown'
+        }
+        
+    except Exception as e:
+        return {
+            'is_free': False,
+            'prompt_price': 0.0,
+            'completion_price': 0.0,
+            'display': 'Pricing unknown - may require credits',
+            'provider': 'Unknown'
+        }
+
+def calculate_session_cost(total_prompt_tokens, total_completion_tokens, pricing_info):
+    """Calculate the total cost for the current session"""
+    if pricing_info['is_free']:
+        return 0.0
+    
+    # Convert to cost per 1000 tokens
+    prompt_cost = (total_prompt_tokens / 1000) * pricing_info['prompt_price']
+    completion_cost = (total_completion_tokens / 1000) * pricing_info['completion_price']
+    
+    return prompt_cost + completion_cost
+
+
 
 def setup_wizard():
     """Interactive setup wizard for first-time users"""
@@ -437,10 +1212,19 @@ def setup_wizard():
     if "OPENROUTER_API_KEY" not in os.environ:
         console.print("[bold yellow]🔐 API Key Setup[/bold yellow]")
         console.print("[dim]Your API key will be encrypted and stored securely[/dim]")
-        api_key = secure_input_api_key()
-        if not api_key:
-            console.print("[red]Setup cancelled - no valid API key provided[/red]")
-            return None
+        
+        # Loop until we get a valid API key or user explicitly cancels
+        while True:
+            api_key = secure_input_api_key()
+            if not api_key:
+                console.print("[red]Invalid API key provided.[/red]")
+                retry = Prompt.ask("Would you like to try again? (y/n)", default="y")
+                if retry.lower() != 'y':
+                    console.print("[red]Setup cancelled - no valid API key provided[/red]")
+                    return None
+                continue  # Ask for API key again
+            else:
+                break  # Valid API key received, exit loop
     else:
         api_key = os.getenv("OPENROUTER_API_KEY")
 
@@ -947,72 +1731,8 @@ def extract_file_content(file_path, file_ext):
         except:
             return "binary", "[Binary content not displayed in chat]"
 
-def apply_theme(theme_name):
-    """Apply a color theme to the console"""
-    themes = {
-        'default': {
-            'user_color': 'blue',
-            'assistant_color': 'green',
-            'system_color': 'yellow',
-            'error_color': 'red',
-            'panel_border': 'green',
-            'panel_title': 'white'
-        },
-        'dark': {
-            'user_color': 'cyan',
-            'assistant_color': 'magenta',
-            'system_color': 'yellow',
-            'error_color': 'red',
-            'panel_border': 'cyan',
-            'panel_title': 'white'
-        },
-        'light': {
-            'user_color': 'blue',
-            'assistant_color': 'green',
-            'system_color': 'yellow',
-            'error_color': 'red',
-            'panel_border': 'blue',
-            'panel_title': 'black'
-        },
-        'hacker': {
-            'user_color': 'green',
-            'assistant_color': 'green',
-            'system_color': 'green',
-            'error_color': 'red',
-            'panel_border': 'green',
-            'panel_title': 'green'
-        }
-    }
 
-    return themes.get(theme_name, themes['default'])
 
-def optimize_streaming():
-    """Configure optimized streaming for better performance"""
-    # Set chunk size optimization
-    chunk_size = 1024
-
-    # Configure adaptive timeouts
-    base_timeout = 30
-    per_token_timeout = 0.01
-
-    # Enable resilient reconnection
-    max_retries = 3
-    retry_delay = 1
-
-    return {
-        "chunk_size": chunk_size,
-        "timeout": {
-            "base": base_timeout,
-            "per_token": per_token_timeout,
-            "max": 120
-        },
-        "retry": {
-            "max": max_retries,
-            "delay": retry_delay
-        }
-    }
-
-# Add this function to show about information
 def show_about():
     """Display information about OrChat"""
     console.print(Panel.fit(
@@ -1056,24 +1776,7 @@ def check_for_updates():
     except Exception as e:
         console.print(f"[yellow]Could not check for updates: {str(e)}[/yellow]")
 
-def model_supports_thinking(model_id):
-    """Determine if a model properly supports the thinking tag format"""
-    # Instead of a hardcoded list, ask the user if they know their model supports thinking
-    console.print("[yellow]Note: Some models support showing thinking processes with <thinking></thinking> tags.[/yellow]")
-    enable_thinking = Prompt.ask(
-        "Do you know if this model supports thinking mode?",
-        choices=["y", "n", "unknown"],
-        default="unknown"
-    )
 
-    if enable_thinking.lower() == "y":
-        return True
-    elif enable_thinking.lower() == "n":
-        return False
-    else:
-        # For unknown models, default to enabled but warn the user
-        console.print("[yellow]Enabling thinking mode by default. If you notice issues with model responses, you can disable it with /thinking-mode[/yellow]")
-        return True
 
 def chat_with_model(config, conversation_history=None):
     """ Main chat loop with model interaction """
@@ -1112,11 +1815,20 @@ def chat_with_model(config, conversation_history=None):
             border_style="yellow"
         ))
 
+    # Get pricing information for the model
+    pricing_info = get_model_pricing_info(config['model'])
+    pricing_display = f"[cyan]Pricing:[/cyan] {pricing_info['display']}"
+    if pricing_info['is_free']:
+        pricing_display += f" [green]({pricing_info['provider']})[/green]"
+    else:
+        pricing_display += f" [dim]({pricing_info['provider']})[/dim]"
+
     console.print(Panel.fit(
         f"[bold blue]Or[/bold blue][bold green]Chat[/bold green] [dim]v{APP_VERSION}[/dim]\n"
         f"[cyan]Model:[/cyan] {config['model']}\n"
         f"[cyan]Temperature:[/cyan] {config['temperature']}\n"
         f"[cyan]Thinking mode:[/cyan] {'[green]✓ Enabled[/green]' if config['thinking_mode'] else '[yellow]✗ Disabled[/yellow]'}\n"
+        f"{pricing_display}\n"
         f"[cyan]Session started:[/cyan] {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
         f"Type your message or use commands: /help for available commands",
         title="🤖 Chat Session Active",
@@ -1126,8 +1838,11 @@ def chat_with_model(config, conversation_history=None):
     # Add session tracking
     session_start_time = time.time()
     total_tokens_used = 0
+    total_prompt_tokens = 0
+    total_completion_tokens = 0
     response_times = []
     message_count = 0
+    max_tokens = None  # Initialize max_tokens variable
 
     # Create a session directory for saving files
     session_id = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -1145,7 +1860,20 @@ def chat_with_model(config, conversation_history=None):
 
     while True:
         try:
-            user_input = Prompt.ask("\n[bold blue]You[/bold blue]")
+            # Display user input panel similar to assistant style
+            console.print("\n")
+            console.print(Panel.fit(
+                "Enter your message",
+                title="👤 You",
+                border_style="blue"
+            ))
+            
+            # Use auto-completion if available, otherwise fallback to regular input
+            if HAS_PROMPT_TOOLKIT:
+                user_input = get_user_input_with_completion()
+            else:
+                print("> ", end="")
+                user_input = input()
 
             # Handle special commands
             # Check if input starts with a command OR contains /upload or /attach
@@ -1171,25 +1899,30 @@ def chat_with_model(config, conversation_history=None):
                     break
 
                 if command == '/help':
+                    help_text = "/exit - Exit the chat\n" \
+                               "/quit - Exit the chat\n" \
+                               "/new - Start a new conversation\n" \
+                               "/clear - Clear conversation history\n" \
+                               "/cls or /clear-screen - Clear terminal screen\n" \
+                               "/save - Save conversation to file\n" \
+                               "/settings - Adjust model settings\n" \
+                               "/tokens - Show token usage statistics\n" \
+                               "/model - Change the AI model\n" \
+                               "/temperature <0.0-2.0> - Adjust temperature\n" \
+                               "/system - View or change system instructions\n" \
+                               "/speed - Show response time statistics\n" \
+                               "/theme <theme> - Change the color theme\n" \
+                               "/about - Show information about OrChat\n" \
+                               "/update - Check for updates\n" \
+                               "/thinking - Show last AI thinking process\n" \
+                               "/thinking-mode - Toggle thinking mode on/off\n" \
+                               "/attach or /upload <filepath> - Share a file with the AI (can be used anywhere in your message)"
+                    
+                    if HAS_PROMPT_TOOLKIT:
+                        help_text += "\n\n[dim]💡 Tip: Press Tab while typing commands for auto-completion with descriptions![/dim]"
+                    
                     console.print(Panel.fit(
-                        "/exit - Exit the chat\n"
-                        "/quit - Exit the chat\n"
-                        "/new - Start a new conversation\n"
-                        "/clear - Clear conversation history\n"
-                        "/cls or /clear-screen - Clear terminal screen\n"  # Add this line
-                        "/save - Save conversation to file\n"
-                        "/settings - Adjust model settings\n"
-                        "/tokens - Show token usage statistics\n"
-                        "/model - Change the AI model\n"
-                        "/temperature <0.0-2.0> - Adjust temperature\n"
-                        "/system - View or change system instructions\n"
-                        "/speed - Show response time statistics\n"
-                        "/theme <theme> - Change the color theme\n"
-                        "/about - Show information about OrChat\n"
-                        "/update - Check for updates\n"
-                        "/thinking - Show last AI thinking process\n"
-                        "/thinking-mode - Toggle thinking mode on/off\n"
-                        "/attach or /upload <filepath> - Share a file with the AI (can be used anywhere in your message)",
+                        help_text,
                         title="Available Commands"
                     ))
                     continue
@@ -1272,7 +2005,44 @@ def chat_with_model(config, conversation_history=None):
                     continue
 
                 elif command == '/tokens':
-                    console.print(f"[cyan]Total tokens used in this session: {total_tokens_used}[/cyan]")
+                    # Calculate session statistics
+                    session_duration = time.time() - session_start_time
+                    session_cost = calculate_session_cost(total_prompt_tokens, total_completion_tokens, pricing_info)
+                    
+                    # Create detailed token statistics
+                    stats_text = f"[bold cyan]📊 Session Statistics[/bold cyan]\n\n"
+                    stats_text += f"[cyan]Model:[/cyan] {config['model']}\n"
+                    stats_text += f"[cyan]Session duration:[/cyan] {format_time_delta(session_duration)}\n"
+                    stats_text += f"[cyan]Messages exchanged:[/cyan] {message_count}\n\n"
+                    
+                    stats_text += f"[bold]Token Usage:[/bold]\n"
+                    stats_text += f"[cyan]Prompt tokens:[/cyan] {total_prompt_tokens:,}\n"
+                    stats_text += f"[cyan]Completion tokens:[/cyan] {total_completion_tokens:,}\n"
+                    stats_text += f"[cyan]Total tokens:[/cyan] {total_tokens_used:,}\n\n"
+                    
+                    if pricing_info['is_free']:
+                        stats_text += f"[green]💰 Cost: FREE[/green]\n"
+                    else:
+                        if session_cost < 0.01:
+                            cost_display = f"${session_cost:.6f}"
+                        else:
+                            cost_display = f"${session_cost:.4f}"
+                        stats_text += f"[cyan]💰 Session cost:[/cyan] {cost_display}\n"
+                        stats_text += f"[dim]Prompt: ${pricing_info['prompt_price']:.6f}/1K | Completion: ${pricing_info['completion_price']:.6f}/1K[/dim]\n"
+                    
+                    if response_times:
+                        avg_time = sum(response_times) / len(response_times)
+                        stats_text += f"\n[cyan]⏱️ Avg response time:[/cyan] {format_time_delta(avg_time)}"
+                        
+                        if total_completion_tokens > 0 and avg_time > 0:
+                            tokens_per_second = total_completion_tokens / sum(response_times)
+                            stats_text += f"\n[cyan]⚡ Speed:[/cyan] {tokens_per_second:.1f} tokens/second"
+                    
+                    console.print(Panel.fit(
+                        stats_text,
+                        title="📈 Token Statistics",
+                        border_style="cyan"
+                    ))
                     continue
 
                 elif command == '/speed':
@@ -1370,6 +2140,27 @@ def chat_with_model(config, conversation_history=None):
                             conversation_history[0] = {"role": "system", "content": config['system_instructions']}
                             save_config(config)
                             console.print("[green]System instructions updated![/green]")
+                    continue
+
+                elif command.startswith('/theme'):
+                    parts = command.split()
+                    available_themes = ['default', 'dark', 'light', 'hacker']
+                    
+                    if len(parts) > 1:
+                        theme = parts[1].lower()
+                        if theme in available_themes:
+                            config['theme'] = theme
+                            save_config(config)
+                            console.print(f"[green]Theme changed to {theme}[/green]")
+                        else:
+                            console.print(f"[red]Invalid theme. Available themes: {', '.join(available_themes)}[/red]")
+                    else:
+                        console.print(f"[cyan]Current theme:[/cyan] {config['theme']}")
+                        console.print(f"[cyan]Available themes:[/cyan] {', '.join(available_themes)}")
+                        new_theme = Prompt.ask("Select theme", choices=available_themes, default=config['theme'])
+                        config['theme'] = new_theme
+                        save_config(config)
+                        console.print(f"[green]Theme changed to {new_theme}[/green]")
                     continue
 
                 elif command.startswith('/attach') or command.startswith('/upload'):
@@ -1497,11 +2288,20 @@ def chat_with_model(config, conversation_history=None):
                     clear_terminal()
 
                     # After clearing, redisplay the session header for context
+                    # Re-get pricing info for display
+                    current_pricing_info = get_model_pricing_info(config['model'])
+                    pricing_display = f"[cyan]Pricing:[/cyan] {current_pricing_info['display']}"
+                    if not current_pricing_info['is_free']:
+                        pricing_display += f" [dim]({current_pricing_info['provider']})[/dim]"
+                    else:
+                        pricing_display += f" [green]({current_pricing_info['provider']})[/green]"
+                        
                     console.print(Panel.fit(
                         f"[bold blue]Or[/bold blue][bold green]Chat[/bold green] [dim]v{APP_VERSION}[/dim]\n"
                         f"[cyan]Model:[/cyan] {config['model']}\n"
                         f"[cyan]Temperature:[/cyan] {config['temperature']}\n"
                         f"[cyan]Thinking mode:[/cyan] {'[green]✓ Enabled[/green]' if config['thinking_mode'] else '[yellow]✗ Disabled[/yellow]'}\n"
+                        f"{pricing_display}\n"
                         f"[cyan]Session started:[/cyan] {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
                         f"Type your message or use commands: /help for available commands",
                         title="🤖 Chat Session Active",
@@ -1516,10 +2316,11 @@ def chat_with_model(config, conversation_history=None):
 
             # Count tokens in user input
             input_tokens = count_tokens(user_input)
+            total_prompt_tokens += input_tokens
 
             # Add user message to conversation history
             conversation_history.append({"role": "user", "content": user_input})
-            
+
             # Get model max tokens
             model_info = get_model_info(config['model'])
             if model_info and 'context_length' in model_info:
@@ -1593,14 +2394,30 @@ def chat_with_model(config, conversation_history=None):
                         # Count tokens and update total
                         response_tokens = count_tokens(message_content)
                         total_tokens_used += input_tokens + response_tokens
+                        total_completion_tokens += response_tokens
+
+                        # Calculate cost for this exchange
+                        exchange_cost = calculate_session_cost(input_tokens, response_tokens, pricing_info)
 
                         # Display speed and token information
                         formatted_time = format_time_delta(response_time)
                         console.print(f"[dim]⏱️ Response time: {formatted_time}[/dim]")
-                        console.print(f"[dim]Tokens: {input_tokens} (input) + {response_tokens} (response) = {input_tokens + response_tokens} (total)[/dim]")
-
+                        
+                        # Enhanced token display with cost
+                        token_display = f"[dim]Tokens: {input_tokens} (input) + {response_tokens} (response) = {input_tokens + response_tokens} (total)"
+                        if exchange_cost > 0:
+                            if exchange_cost < 0.01:
+                                token_display += f" | Cost: ${exchange_cost:.6f}"
+                            else:
+                                token_display += f" | Cost: ${exchange_cost:.4f}"
+                        token_display += "[/dim]"
+                        console.print(token_display)
+                        
                         if max_tokens:
                             console.print(f"[dim]Total Tokens: {total_tokens_used:,} / {max_tokens:,}[/dim]")
+                        
+                        # Increment message count for successful exchanges
+                        message_count += 1
                     else:
                         # If we didn't get content but status was 200, something went wrong with streaming
                         console.print("[red]Error: Received empty response from API[/red]")
@@ -1612,7 +2429,26 @@ def chat_with_model(config, conversation_history=None):
                     try:
                         error_data = response.json()
                         error_message = error_data.get('error', {}).get('message', str(response.text))
-                        console.print(f"[red]API Error ({response.status_code}): {error_message}[/red]")
+                        
+                        # Special handling for insufficient credits error (402)
+                        if response.status_code == 402:
+                            suggestions_text = (
+                                f"[yellow]Solutions:[/yellow]\n"
+                                f"• Add credits at: [link=https://openrouter.ai/settings/credits]https://openrouter.ai/settings/credits[/link]\n"
+                                f"• Browse free models: [cyan]/model[/cyan] → [cyan]2[/cyan] (Show free models only)\n"
+                                f"• Try the free version if available: [cyan]{config['model']}:free[/cyan]\n"
+                                f"\n[dim]Original error: {error_message}[/dim]"
+                            )
+                            
+                            console.print(Panel.fit(
+                                f"[red]💳 Insufficient Credits[/red]\n\n"
+                                f"The model '[cyan]{config['model']}[/cyan]' requires credits to use.\n\n"
+                                f"{suggestions_text}",
+                                title="⚠️ Payment Required",
+                                border_style="red"
+                            ))
+                        else:
+                            console.print(f"[red]API Error ({response.status_code}): {error_message}[/red]")
                     except Exception:
                         console.print(f"[red]API Error: Status code {response.status_code}[/red]")
                         console.print(f"[red]{response.text}[/red]")
@@ -1658,6 +2494,42 @@ def create_chat_ui():
         width=40
     ))
 
+def get_model_recommendations(task_type=None, budget=None):
+    """Recommends models based on task type and budget constraints using dynamic OpenRouter categories"""
+    all_models = get_available_models()
+
+    if not task_type:
+        return all_models
+
+    # Get dynamic task categories from OpenRouter API instead of hardcoded ones
+    try:
+        task_categories = get_dynamic_task_categories()
+        console.print(f"[dim]Using dynamic categories for task: {task_type}[/dim]")
+    except Exception as e:
+        console.print(f"[yellow]Warning: Failed to get dynamic categories, using fallback patterns: {str(e)}[/yellow]")
+        # Fallback to basic patterns if API fails
+        task_categories = {
+            "creative": ["claude-3", "gpt-4", "llama", "gemini"],
+            "coding": ["claude-3-opus", "gpt-4", "deepseek-coder", "qwen-coder", "devstral", "codestral"],
+            "analysis": ["claude-3-opus", "gpt-4", "mistral", "qwen"],
+            "chat": ["claude-3-haiku", "gpt-3.5", "gemini-pro", "llama"]
+        }
+
+    recommended = []
+    task_model_patterns = task_categories.get(task_type, [])
+    
+    for model in all_models:
+        model_id = model.get('id', '').lower()
+        # Check if model matches any of the task-specific patterns/slugs
+        if any(pattern.lower() in model_id for pattern in task_model_patterns):
+            # Filter by budget if specified
+            if budget == "free" and ":free" in model['id']:
+                recommended.append(model)
+            elif budget is None or budget != "free":
+                recommended.append(model)
+
+    return recommended or all_models
+
 def main():
     parser = argparse.ArgumentParser(description="OrChat - AI chat powered by OpenRouter")
     parser.add_argument("--setup", action="store_true", help="Run the setup wizard")
@@ -1673,6 +2545,9 @@ def main():
 
     if args.setup or (not os.path.exists(config_file) and not os.path.exists(env_file)):
         config = setup_wizard()
+        if config is None:
+            console.print("[red]Setup failed. Cannot continue without proper configuration. Exiting.[/red]")
+            sys.exit(1)
     else:
         config = load_config()
 
@@ -1685,6 +2560,9 @@ def main():
         setup_choice = Prompt.ask("Would you like to run the setup wizard? (y/n)", default="y")
         if setup_choice.lower() == 'y':
             config = setup_wizard()
+            if config is None:
+                console.print("[red]Setup failed. Cannot continue without a valid API key. Exiting.[/red]")
+                sys.exit(1)
         else:
             console.print("[red]Cannot continue without a valid API key. Exiting.[/red]")
             sys.exit(1)
@@ -1747,14 +2625,13 @@ def main():
         conversation_history = [
             {"role": "system", "content": config['system_instructions']}
         ]
-        success, message = multimodal_support(args.image, conversation_history)
+        success, message = handle_attachment(args.image, conversation_history)
         if success:
             console.print(f"[green]{message}[/green]")
         else:
             console.print(f"[red]{message}[/red]")
 
-    # Start chat with optimized streaming settings
-    streaming_config = optimize_streaming()
+    # Start chat
     chat_with_model(config, conversation_history)
 
 
@@ -1766,388 +2643,4 @@ if __name__ == "__main__":
     except Exception as e:
         console.print(f"[red]Critical error: {str(e)}[/red]")
         sys.exit(1)
-
-# Add these conversation management features
-def export_conversation(conversation_history, fmt="markdown", include_system=False):
-    """Export conversation in multiple formats with advanced options"""
-    formats = {
-        "markdown": export_markdown,
-        "json": export_json,
-        "html": export_html,
-        "pdf": export_pdf,
-        "txt": export_txt
-    }
-
-    if fmt in formats:
-        return formats[fmt](conversation_history, include_system)
-    return export_markdown(conversation_history, include_system)
-
-def chat_context_manager(conversation_history, max_tokens=8000):
-    """Advanced context window management with summarization"""
-    # If approaching token limit, create a summary of older messages
-    if sum(count_tokens(msg["content"]) for msg in conversation_history) > (max_tokens * 0.8):
-        # Extract older messages for summarization
-        older_messages = conversation_history[1:len(conversation_history)//2]
-
-        # Create a summary prompt
-        summary_prompt = "Summarize the following conversation:\n\n"
-        for msg in older_messages:
-            summary_prompt += f"{msg['role'].capitalize()}: {msg['content']}\n\n"
-
-        # Get summary from model
-        summary = get_summary_from_model(summary_prompt)
-
-        # Replace older messages with summary
-        conversation_history = [
-            conversation_history[0],  # Keep system prompt
-            {"role": "system", "content": f"Summary of previous conversation: {summary}"},
-            *conversation_history[len(conversation_history)//2:]  # Keep newer messages
-        ]
-
-    return conversation_history
-
-# Enhanced model management
-def get_model_recommendations(task_type=None, budget=None):
-    """Recommends models based on task type and budget constraints"""
-    all_models = get_available_models()
-
-    if not task_type:
-        return all_models
-
-    task_categories = {
-        "creative": ["claude-3", "gpt-4", "llama", "gemini"],
-        "coding": ["claude-3-opus", "gpt-4", "deepseek-coder"],
-        "analysis": ["claude-3-opus", "gpt-4", "mistral"],
-        "chat": ["claude-3-haiku", "gpt-3.5", "gemini-pro"]
-    }
-
-    recommended = []
-    for model in all_models:
-        # Filter by task suitability
-        if any(model_family in model['id'].lower() for model_family in task_categories.get(task_type, [])):
-            # Filter by budget if specified
-            if budget == "free" and ":free" in model['id']:
-                recommended.append(model)
-            elif budget is None or budget != "free":
-                recommended.append(model)
-
-    return recommended or all_models
-
-# Add these powerful features
-def multimodal_support(file_path, conversation_history):
-    """Handle images and other non-text content"""
-    file_ext = os.path.splitext(file_path)[1].lower()
-
-    # Handle different file types
-    if file_ext in ['.png', '.jpg', '.jpeg', '.gif', '.webp']:
-        # Encode image to base64
-        with open(file_path, 'rb') as img_file:
-            base64_image = base64.b64encode(img_file.read()).decode('utf-8')
-
-        # Add to messages with proper format for multimodal models
-        conversation_history.append({
-            "role": "user",
-            "content": [
-                {"type": "text", "text": "I'm sharing this image with you:"},
-                {"type": "image_url", "image_url": {"url": f"data:image/{file_ext[1:]};base64,{base64_image}"}}
-            ]
-        })
-        return True, f"Image '{os.path.basename(file_path)}' attached successfully."
-
-    return process_file_upload(file_path, conversation_history)
-
-def tool_integration(conversation_history):
-    """Add function calling capabilities for weather, search, etc."""
-    # Define available tools
-    tools = [
-        {
-            "type": "function",
-            "function": {
-                "name": "get_weather",
-                "description": "Get current weather for a location",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "location": {"type": "string", "description": "City name"},
-                        "unit": {"type": "string", "enum": ["celsius", "fahrenheit"]}
-                    },
-                    "required": ["location"]
-                }
-            }
-        },
-        {
-            "type": "function",
-            "function": {
-                "name": "search_web",
-                "description": "Search the web for information",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "query": {"type": "string", "description": "Search query"}
-                    },
-                    "required": ["query"]
-                }
-            }
-        }
-    ]
-
-    return tools
-
-def conversation_search(conversation_history, query):
-    """Search through conversation history"""
-    results = []
-    for i, msg in enumerate(conversation_history):
-        if query.lower() in msg["content"].lower():
-            results.append((i, msg))
-
-    return results
-
-def auto_completion(user_input, conversation_history):
-    """Provide smart tab completion based on conversation context"""
-    # Detect command completion
-    if user_input.startswith('/'):
-        commands = ['/help', '/model', '/save', '/theme', '/exit', '/quit', '/clear',
-                   '/tokens', '/system', '/search', '/execute', '/upload']
-        matching = [cmd for cmd in commands if cmd.startswith(user_input)]
-        return matching
-
-    # Context-aware suggestions based on conversation
-    recent_keywords = extract_keywords(conversation_history[-5:])
-    return [kw for kw in recent_keywords if kw.startswith(user_input)]
-
-def session_persistence(session_dir, conversation_history):
-    """Automatically save sessions for crash recovery"""
-    # Create backup file path
-    backup_path = os.path.join(session_dir, "backup.json")
-
-    # Save the current state
-    with open(backup_path, 'w', encoding="utf-8") as f:
-        json.dump({
-            "timestamp": time.time(),
-            "conversation": conversation_history
-        }, f)
-
-    # Return recovery function
-    def recover_session():
-        if os.path.exists(backup_path):
-            try:
-                with open(backup_path, 'r',  encoding="utf-8") as f:
-                    data = json.load(f)
-                return data["conversation"]
-            except:
-                return None
-        return None
-
-    return recover_session
-
-def interactive_help():
-    """Provide interactive help with examples"""
-    help_sections = {
-        "basics": [
-            ("Starting a conversation", "Simply type your message and press Enter"),
-            ("Changing models", "Use /model to select from available AI models"),
-            ("Saving your chat", "Use /save to export your conversation")
-        ],
-        "advanced": [
-            ("Code execution", "The assistant can generate and you can run code with /execute"),
-            ("File uploads", "Share files with /upload [filepath]"),
-            ("Multimodal", "Share images and get AI analysis")
-        ],
-        "tips": [
-            ("For creative tasks", "Try models like Claude-3 Opus or GPT-4"),
-            ("For coding help", "DeepSeek Coder or Claude-3 Opus excel at programming"),
-            ("For faster responses", "Haiku models are optimized for speed")
-        ]
-    }
-
-    # Display interactive menu
-    console.print("[bold green]OrChat Help[/bold green]\n")
-
-    section = Prompt.ask(
-        "Choose a help section",
-        choices=["basics", "advanced", "tips", "all"],
-        default="basics"
-    )
-
-    if section == "all":
-        for sec_name, items in help_sections.items():
-            console.print(f"\n[bold cyan]{sec_name.capitalize()}[/bold cyan]")
-            for title, desc in items:
-                console.print(f"[bold]{title}:[/bold] {desc}")
-    else:
-        console.print(f"\n[bold cyan]{section.capitalize()}[/bold cyan]")
-        for title, desc in help_sections[section]:
-            console.print(f"[bold]{title}:[/bold] {desc}")
-
-def extract_keywords(messages, max_keywords=10):
-    """Extract important keywords from recent conversation messages"""
-    # Combine all message content
-    all_text = " ".join([msg["content"] for msg in messages if isinstance(msg["content"], str)])
-
-    # Simple keyword extraction - remove common words and punctuation
-    common_words = {"the", "and", "a", "to", "of", "is", "in", "that", "it", "with",
-                   "for", "as", "on", "at", "by", "an", "be", "this", "are", "or", "was"}
-
-    # Clean and tokenize text
-    words = re.findall(r'\b\w+\b', all_text.lower())
-
-    # Count word frequencies, excluding common words
-    word_counts = Counter([w for w in words if w not in common_words and len(w) > 2])
-
-    # Return most common keywords
-    return [word for word, count in word_counts.most_common(max_keywords)]
-
-def get_summary_from_model(summary_prompt):
-    """Get a summary of conversation from the model"""
-    # Use the current model to generate a summary
-    config = load_config()
-
-    headers = {
-        "Authorization": f"Bearer {config['api_key']}",
-        "Content-Type": "application/json",
-    }
-
-    data = {
-        "model": config['model'],
-        "messages": [
-            {"role": "system", "content": "You are a helpful assistant that summarizes conversations concisely."},
-            {"role": "user", "content": summary_prompt}
-        ],
-        "temperature": 0.3,  # Lower temperature for more factual summary
-        "max_tokens": 300    # Limit summary length
-    }
-
-    try:
-        response = requests.post(
-            url="https://openrouter.ai/api/v1/chat/completions",
-            headers=headers,
-            json=data,
-            timeout=30
-        )
-
-        if response.status_code == 200:
-            result = response.json()
-            return result["choices"][0]["message"]["content"]
-        return "Previous conversation summary unavailable."
-    except Exception:
-        return "Previous conversation summary unavailable."
-
-def export_markdown(conversation_history, include_system=False):
-    """Export conversation to markdown format"""
-    output = "# OrChat Conversation\n\n"
-    output += f"Date: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
-
-    for msg in conversation_history:
-        if msg['role'] == 'system' and not include_system:
-            continue
-
-        output += f"## {msg['role'].capitalize()}\n\n{msg['content']}\n\n"
-
-    return output
-
-def export_json(conversation_history, include_system=True):
-    """Export conversation to JSON format"""
-    if not include_system:
-        # Filter out system messages
-        filtered_history = [msg for msg in conversation_history if msg['role'] != 'system']
-        return json.dumps(filtered_history, indent=2)
-    return json.dumps(conversation_history, indent=2)
-
-def export_html(conversation_history, include_system=False):
-    """Export conversation to HTML format"""
-    html = ("""<!DOCTYPE html>
-<html>
-<head>
-    <title>OrChat Conversation</title>
-    <style>
-        body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
-        .system { background-color: #f0f0f0; padding: 10px; border-radius: 5px; }
-        .user { background-color: #e1f5fe; padding: 10px; border-radius: 5px; margin: 10px 0; }
-        .assistant { background-color: #f1f8e9; padding: 10px; border-radius: 5px; margin: 10px 0; }
-        h1, h2 { color: #333; }
-    </style>
-</head>
-<body>
-    <h1>OrChat Conversation</h1>
-    <p>Date: """ + datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S') + "</p>\n")
-
-    for msg in conversation_history:
-        if msg['role'] == 'system' and not include_system:
-            continue
-
-        content_html = msg['content'].replace('\n', '<br>')
-        html += f"""
-    <div class="{msg['role']}">
-        <h2>{msg['role'].capitalize()}</h2>
-        <p>{content_html}</p>
-    </div>
-"""
-
-    html += """
-</body>
-</html>
-"""
-    return html
-
-def export_txt(conversation_history, include_system=False):
-    """Export conversation to plain text format"""
-    output = "OrChat Conversation\n"
-    output += f"Date: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
-
-    for msg in conversation_history:
-        if msg['role'] == 'system' and not include_system:
-            continue
-
-        output += f"{msg['role'].upper()}:\n{msg['content']}\n\n"
-
-    return output
-
-def export_pdf(conversation_history, include_system=False):
-    """Export conversation to PDF format"""
-    try:
-        # Check if reportlab is installed
-        try:
-            import reportlab
-        except ImportError:
-            console.print("[yellow]ReportLab package not found. Installing...[/yellow]")
-            subprocess.check_call([sys.executable, "-m", "pip", "install", "reportlab"])
-
-        from reportlab.lib.pagesizes import letter
-        from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
-        from reportlab.lib.styles import getSampleStyleSheet
-
-        # Create a temporary file for the PDF
-        with tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as tmp:
-            pdf_path = tmp.name
-
-        # Create the PDF document
-        doc = SimpleDocTemplate(pdf_path, pagesize=letter)
-        styles = getSampleStyleSheet()
-
-        # Add content to the PDF
-        content = []
-        content.append(Paragraph("OrChat Conversation", styles['Title']))
-        content.append(Paragraph(f"Date: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", styles['Normal']))
-        content.append(Spacer(1, 12))
-
-        for msg in conversation_history:
-            if msg['role'] == 'system' and not include_system:
-                continue
-
-            content.append(Paragraph(f"{msg['role'].upper()}:", styles['Heading2']))
-            # Split content by lines to maintain formatting
-            for line in msg['content'].split('\n'):
-                if line.strip():
-                    content.append(Paragraph(line, styles['Normal']))
-                else:
-                    content.append(Spacer(1, 6))
-            content.append(Spacer(1, 12))
-
-        # Build the PDF
-        doc.build(content)
-        return pdf_path
-    except Exception as e:
-        console.print(f"[red]Error creating PDF: {str(e)}[/red]")
-        # Fallback to markdown if PDF creation fails
-        return export_markdown(conversation_history, include_system)
 

@@ -6,3 +6,4 @@ colorama
 packaging
 pyfzf
 cryptography
+prompt_toolkit
