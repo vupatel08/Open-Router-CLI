@@ -1194,8 +1194,8 @@ def calculate_session_cost(total_prompt_tokens, total_completion_tokens, pricing
         return 0.0
     
     # Convert to cost per 1000 tokens
-    prompt_cost = (total_prompt_tokens / 1000) * pricing_info['prompt_price']
-    completion_cost = (total_completion_tokens / 1000) * pricing_info['completion_price']
+    prompt_cost = total_prompt_tokens * pricing_info['prompt_price']
+    completion_cost = total_completion_tokens * pricing_info['completion_price']
     
     return prompt_cost + completion_cost
 
