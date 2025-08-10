@@ -1,27 +1,11 @@
-<div align="center">
-
-# 🤖 OrChat
-
-<img src="https://github.com/user-attachments/assets/df20dccc-8971-414e-9281-74260f05bf44" width="800" alt="OrChat Interface"/>
-
-[![PyPI version](https://img.shields.io/pypi/v/orchat?color=86efac&style=for-the-badge&logo=pypi&logoColor=black)](https://badge.fury.io/py/orchat)
-[![License: MIT](https://img.shields.io/badge/License-MIT-10b981?style=for-the-badge&logo=opensource&logoColor=white)](https://opensource.org/licenses/MIT)
-[![Python 3.7+](https://img.shields.io/badge/python-3.7+-10b981?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/downloads/)
-[![Downloads](https://img.shields.io/pypi/dm/orchat?color=1f2937&style=for-the-badge&logo=download&logoColor=white)](https://pepy.tech/project/orchat)
-[![GitHub Stars](https://img.shields.io/github/stars/oop7/OrChat?color=86efac&style=for-the-badge&logo=github&logoColor=black)](https://github.com/oop7/OrChat/stargazers)
-
-[🚀 Installation](#installation) • [✨ Features](#features) • [💬 Chat Commands](#chat-commands) • [📁 File Attachment](#file-attachment) • [🧠 Thinking Mode](#thinking-mode) • [⚙️ Configuration](#configuration) • [🔍 Troubleshooting](#troubleshooting) • [🤝 Contributing](#contributing)
+# OpenRouter CLI
 
 A powerful CLI for chatting with AI models through OpenRouter with streaming responses, token tracking, and extensive customization options.
 
-</div>
-
-
-<a id="features"></a>
-## ✨ Features
+## Features
 
 <details>
-<summary><strong>🔗 Core Features</strong></summary>
+<summary><strong>Core Features</strong></summary>
 
 - **Universal Model Access**: Connect to any AI model available on OpenRouter with dynamic model retrieval
 - **Interactive Chat**: Enjoy a smooth conversation experience with real-time streaming responses
@@ -34,7 +18,7 @@ A powerful CLI for chatting with AI models through OpenRouter with streaming res
 </details>
 
 <details>
-<summary><strong>📎 File & Media Support</strong></summary>
+<summary><strong>File & Media Support</strong></summary>
 
 - **Multimodal Support**: Share images and various file types with compatible AI models
 - **Enhanced File Processing**: Improved file attachment with better error handling and path support
@@ -43,7 +27,7 @@ A powerful CLI for chatting with AI models through OpenRouter with streaming res
 </details>
 
 <details>
-<summary><strong>🧠 Advanced Features</strong></summary>
+<summary><strong>Advanced Features</strong></summary>
 
 - **Smart Thinking Mode**: See the AI's reasoning process with compatible models
 - **Multiple Export Formats**: Save conversations as Markdown, HTML, JSON, TXT, or PDF
@@ -53,7 +37,7 @@ A powerful CLI for chatting with AI models through OpenRouter with streaming res
 </details>
 
 <details>
-<summary><strong>⌨️ Interactive Input Features</strong></summary>
+<summary><strong>Interactive Input Features</strong></summary>
 
 - **Command History Navigation**: Press ↑/↓ arrow keys to cycle through previous prompts and commands
 - **History Search**: Use Ctrl+R to search through your prompt history with keywords
@@ -61,7 +45,7 @@ A powerful CLI for chatting with AI models through OpenRouter with streaming res
 - **Auto-Suggest from History**: Previous commands and prompts appear as grey suggestions as you type
 - **Intelligent Command Detection**: Commands work anywhere in your message with `/attach` and `/upload`
 
-**💡 How Auto-Completion Works:**
+**How Auto-Completion Works:**
 - Type `/` → All available commands appear automatically
 - Type `/c` → Filters to commands starting with 'c' (clear, cls, clear-screen, etc.)
 - Type `/temp` → Shows `/temperature` command
@@ -70,20 +54,9 @@ A powerful CLI for chatting with AI models through OpenRouter with streaming res
 
 </details>
 
-<a id="installation"></a>
-## 🚀 Installation
+## Installation
 
-<summary><strong>📦 Installation Methods</strong></summary>
-
-### From PyPI (Recommended)
-
-```bash
-pip install orchat
-```
-```bash
-# Run the application
-orchat
-```
+<summary><strong>Installation Methods</strong></summary>
 
 ### From Source
 
@@ -98,7 +71,7 @@ python main.py
 </details>
 
 <details>
-<summary><strong>📋 Prerequisites</strong></summary>
+<summary><strong>Prerequisites</strong></summary>
 
 - Python 3.7 or higher
 - An OpenRouter API key (get one at [OpenRouter.ai](https://openrouter.ai))
@@ -107,18 +80,13 @@ python main.py
 </details>
 
 <details>
-<summary><strong>🏁 Getting Started</strong></summary>
+<summary><strong>Getting Started</strong></summary>
 
-1. Install OrChat using one of the methods above
+1. Install OpenRouter CLI using the method above
 2. Run the setup wizard
-   - if you follow from source PyPI:
-     ```bash
-     orchat --setup
-     ```
-   - if you follow from source method:
-     ```bash
-     python main.py --setup
-     ```
+   ```bash
+   python main.py --setup
+   ```
 3. Enter your OpenRouter API key when prompted
 4. Select your preferred AI model and configure settings
 5. Start chatting!
@@ -126,7 +94,7 @@ python main.py
 </details>
 
 <details>
-<summary><strong>🪛 Add-Ons</strong></summary>
+<summary><strong>Add-Ons</strong></summary>
 
 ### FZF fuzzy search (Enhanced Model Selection)
 
@@ -141,29 +109,28 @@ python main.py
 2. Ensure fzf is in your path
 3. From now on, the model selection will use fzf for powerful fuzzy search and filtering capabilities!
 
-**Note**: If fzf is not installed, OrChat will automatically fall back to standard model selection.
+**Note**: If fzf is not installed, OpenRouter CLI will automatically fall back to standard model selection.
 
 </details>
 
-<a id="configuration"></a>
-## ⚙️ Configuration
+## Configuration
 
 <details>
-<summary><strong>🔧 Configuration Methods</strong></summary>
+<summary><strong>Configuration Methods</strong></summary>
 
-OrChat can be configured in multiple ways:
+OpenRouter CLI can be configured in multiple ways:
 
 1. **Setup Wizard**: Run `python main.py --setup` for interactive configuration
 2. **Config File**: Edit the `config.ini` file in the application directory
 3. **Environment Variables**: Create a `.env` file with your configuration
 4. **System Environment Variables**: Set environment variables directly in your system (recommended for security)
 
-**Enhanced Environment Support**: OrChat now supports system/user environment variables, removing the strict requirement for `.env` files.
+**Enhanced Environment Support**: OpenRouter CLI now supports system/user environment variables, removing the strict requirement for `.env` files.
 
 </details>
 
 <details>
-<summary><strong>📄 Configuration Examples</strong></summary>
+<summary><strong>Configuration Examples</strong></summary>
 
 Example `.env` file:
 
@@ -191,7 +158,7 @@ THINKING_MODE = False
 </details>
 
 <details>
-<summary><strong>🖥️ Command-Line Options</strong></summary>
+<summary><strong>Command-Line Options</strong></summary>
 
 - `--setup`: Run the setup wizard
 - `--model MODEL`: Specify the model to use (e.g., `--model "anthropic/claude-3-opus"`)
@@ -200,8 +167,7 @@ THINKING_MODE = False
 
 </details>
 
-<a id="chat-commands"></a>
-## 💬 Chat Commands
+## Chat Commands
 
 | Command                   | Description                                           |
 | ------------------------- | ----------------------------------------------------- |
@@ -221,15 +187,14 @@ THINKING_MODE = False
 | `/thinking`               | Show last AI thinking process                         |
 | `/thinking-mode`          | Toggle thinking mode on/off                           |
 | `/attach` or `/upload`    | Share a file with the AI (can be used anywhere in your message) |
-| `/about`                  | Show information about OrChat                         |
+| `/about`                  | Show information about OpenRouter CLI                         |
 | `/update`                 | Check for updates                                     |
 | `/settings`               | View current settings                                 |
 
-<a id="file-attachment"></a>
-## 📁 File Attachment
+## File Attachment
 
 <details>
-<summary><strong>📎 Basic Usage</strong></summary>
+<summary><strong>Basic Usage</strong></summary>
 
 Share files with the AI for analysis using the enhanced attachment system:
 
@@ -241,7 +206,7 @@ Share files with the AI for analysis using the enhanced attachment system:
 </details>
 
 <details>
-<summary><strong>✨ Enhanced Features</strong></summary>
+<summary><strong>Enhanced Features</strong></summary>
 
 - **Flexible Command Usage**: `/upload` and `/attach` can be used anywhere in your message, not just at the beginning
 - **Quoted Path Support**: Handles file paths with spaces using quotes (`/attach "C:\path with spaces\file.txt"`)
@@ -252,7 +217,7 @@ Share files with the AI for analysis using the enhanced attachment system:
 </details>
 
 <details>
-<summary><strong>📋 Supported File Types</strong></summary>
+<summary><strong>Supported File Types</strong></summary>
 
 - **Images**: JPG, PNG, GIF, WEBP, BMP (displayed visually with multimodal models)
 - **Code Files**: Python, JavaScript, Java, C++, TypeScript, Swift, etc. (with syntax highlighting)
@@ -263,13 +228,12 @@ Share files with the AI for analysis using the enhanced attachment system:
 
 </details>
 
-<a id="thinking-mode"></a>
-## 🧠 Thinking Mode
+## Thinking Mode
 
 <details>
-<summary><strong>🎯 Basic Usage</strong></summary>
+<summary><strong>Basic Usage</strong></summary>
 
-OrChat can display the AI's reasoning process with enhanced thinking mode:
+OpenRouter CLI can display the AI's reasoning process with enhanced thinking mode:
 
 ```
 /thinking-mode       # Toggle thinking mode on/off
@@ -281,7 +245,7 @@ This feature allows you to see how the AI approached your question before giving
 </details>
 
 <details>
-<summary><strong>✨ Enhanced Features</strong></summary>
+<summary><strong>Enhanced Features</strong></summary>
 
 - **Improved Detection**: Better extraction of thinking content from model responses
 - **Model Compatibility**: Automatic handling of models that don't support thinking mode
@@ -290,10 +254,10 @@ This feature allows you to see how the AI approached your question before giving
 
 </details>
 
-## 🎨 Themes
+## Themes
 
 <details>
-<summary><strong>🎨 Available Themes</strong></summary>
+<summary><strong>Available Themes</strong></summary>
 
 Change the visual appearance with the `/theme` command:
 
@@ -304,12 +268,12 @@ Change the visual appearance with the `/theme` command:
 
 </details>
 
-## 📊 Token Management
+## Token Management
 
 <details>
-<summary><strong>📊 Smart Context Management</strong></summary>
+<summary><strong>Smart Context Management</strong></summary>
 
-OrChat intelligently manages conversation context to keep within token limits:
+OpenRouter CLI intelligently manages conversation context to keep within token limits:
 
 - Automatically trims old messages when approaching limits
 - Displays comprehensive token usage statistics including total tokens and cost tracking
@@ -319,24 +283,21 @@ OrChat intelligently manages conversation context to keep within token limits:
 
 </details>
 
-## 🔄 Updates
+## Updates
 
 <details>
-<summary><strong>🔄 Version Management</strong></summary>
+<summary><strong>Version Management</strong></summary>
 
 Check for updates with the `/update` command to see if a newer version is available.
 
 </details>
 
-
-
-<a id="troubleshooting"></a>
-## 🔍 Troubleshooting
+## Troubleshooting
 
 <details>
-<summary><strong>🔍 Common Issues & Solutions</strong></summary>
+<summary><strong>Common Issues & Solutions</strong></summary>
 
-- **API Key Issues**: Ensure your OpenRouter API key is correctly set in config.ini, .env file, or system environment variables. OrChat will prompt for re-entry if an incorrect key is detected
+- **API Key Issues**: Ensure your OpenRouter API key is correctly set in config.ini, .env file, or system environment variables. OpenRouter CLI will prompt for re-entry if an incorrect key is detected
 - **Insufficient Account Credit**: If you receive a 402 error, check your OpenRouter account balance and add funds as needed
 - **File Path Problems**: When using `/attach` or `/upload`, use quotes for paths with spaces and ensure correct path format for your OS
 - **Model Compatibility**: Some features like thinking mode only work with specific models
@@ -344,22 +305,21 @@ Check for updates with the `/update` command to see if a newer version is availa
 
 </details>
 
-## 📝 License
+## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-<a id="contributing"></a>
-## 🤝 Contributing
+## Contributing
 
 Contributions are welcome! Feel free to open issues or submit pull requests.
 
-## 🙏 Acknowledgments
+## Acknowledgments
 
 <details>
-<summary><strong>🙏 Special Thanks</strong></summary>
+<summary><strong>Special Thanks</strong></summary>
 
 - [OpenRouter](https://openrouter.ai/) for providing unified API access to AI models
 - [Rich](https://github.com/Textualize/rich) for the beautiful terminal interface
-- All contributors and users who provide feedback and help improve OrChat
+- All contributors and users who provide feedback and help improve OpenRouter CLI
 
 </details>
